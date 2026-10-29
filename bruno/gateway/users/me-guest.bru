@@ -1,0 +1,23 @@
+meta {
+  name: Get guest profile
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{gateway_url}}/api/v1/users/me
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{guest_token}}
+}
+
+tests {
+  test("guest token resolves to a guest profile without email", function() {
+    expect(res.getStatus()).to.equal(200);
+    expect(res.getBody().account_type).to.equal("guest");
+    expect(res.getBody().display_name).to.equal("Guest");
+    expect(res.getBody().email).to.equal("");
+  });
+}

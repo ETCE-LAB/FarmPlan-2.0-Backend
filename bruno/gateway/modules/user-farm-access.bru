@@ -1,0 +1,22 @@
+meta {
+  name: Registered user access to farms
+  type: http
+  seq: 4
+}
+
+get {
+  url: {{gateway_url}}/api/v1/modules/farms/access
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{user_token}}
+}
+
+tests {
+  test("registered user can access an enabled module", function() {
+    expect(res.getStatus()).to.equal(200);
+    expect(res.getBody().module_id).to.equal("farms");
+    expect(res.getBody().account_type).to.equal("user");
+  });
+}

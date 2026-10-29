@@ -1,0 +1,169 @@
+name: farmplan-dev
+
+services:
+  postgres:
+    image: postgis/postgis:16-3.4
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-farmplan}
+      POSTGRES_USER: ${POSTGRES_USER:-farmplan}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-farmplan-dev-only}
+    ports:
+      - "${POSTGRES_BIND_ADDRESS:-127.0.0.1}:${POSTGRES_PORT:-5433}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "${REDIS_BIND_ADDRESS:-127.0.0.1}:${REDIS_PORT:-6380}:6379"
+    volumes:
+      - redis_data:/data
+    command: ["redis-server", "--appendonly", "yes"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  identity-migrations:
+    image: postgis/postgis:16-3.4
+    command:
+      - psql
+      - postgresql://${POSTGRES_USER:-farmplan}:${POSTGRES_PASSWORD:-farmplan-dev-only}@postgres:5432/${POSTGRES_DB:-farmplan}
+      - -v
+      - ON_ERROR_STOP=1
+      - -f
+      - /migrations/001_create_users.sql
+    volumes:
+      - ../services/identity-service/migrations/001_create_users.sql:/migrations/001_create_users.sql:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  identity-service:
+    build:
+      context: ..
+      dockerfile: infra/docker/identity-service.Dockerfile
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-farmplan}:${POSTGRES_PASSWORD:-farmplan-dev-only}@postgres:5432/${POSTGRES_DB:-farmplan}
+      JWT_SECRET: ${JWT_SECRET:-local-development-only-change-this-secret}
+      APP_ENV: ${APP_ENV:-development}
+    depends_on:
+      identity-migrations:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "python", "-c", "import socket; socket.create_connection(('127.0.0.1', 50051), timeout=2).close()"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+
+  api-gateway:
+    build:
+      context: ..
+      dockerfile: infra/docker/api-gateway.Dockerfile
+    environment:
+      APP_ENV: ${APP_ENV:-development}
+      IDENTITY_SERVICE_ADDRESS: identity-service:50051
+      FARM_SERVICE_ADDRESS: farm-service:50051
+      ENABLED_MODULES: ${ENABLED_MODULES:-farms,catalog,planning,analysis,media}
+      GUEST_ENABLED_MODULES: ${GUEST_ENABLED_MODULES:-catalog,planning}
+    ports:
+      - "${GATEWAY_BIND_ADDRESS:-127.0.0.1}:${GATEWAY_PORT:-8000}:8000"
+    depends_on:
+      identity-service:
+        condition: service_healthy
+      farm-service:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "python", "-c", "from urllib.request import urlopen; urlopen('http://127.0.0.1:8000/healthz', timeout=2)"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+    restart: unless-stopped
+
+  farm-migrations:
+    image: postgis/postgis:16-3.4
+    command:
+      - psql
+      - postgresql://${POSTGRES_USER:-farmplan}:${POSTGRES_PASSWORD:-farmplan-dev-only}@postgres:5432/${POSTGRES_DB:-farmplan}
+      - -v
+      - ON_ERROR_STOP=1
+      - -f
+      - /migrations/001_create_farms.sql
+    volumes:
+      - ../services/farm-service/migrations/001_create_farms.sql:/migrations/001_create_farms.sql:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  farm-service:
+    build:
+      context: ..
+      dockerfile: infra/docker/farm-service.Dockerfile
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-farmplan}:${POSTGRES_PASSWORD:-farmplan-dev-only}@postgres:5432/${POSTGRES_DB:-farmplan}
+    depends_on:
+      farm-migrations:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  catalog-service:
+    build:
+      context: ..
+      dockerfile: infra/docker/dev-grpc-service.Dockerfile
+      args:
+        SERVICE_NAME: catalog-service
+    environment:
+      SERVICE_NAME: catalog-service
+      PORT: "50051"
+    restart: unless-stopped
+
+  planning-service:
+    build:
+      context: ..
+      dockerfile: infra/docker/dev-grpc-service.Dockerfile
+      args:
+        SERVICE_NAME: planning-service
+    environment:
+      SERVICE_NAME: planning-service
+      PORT: "50051"
+    restart: unless-stopped
+
+  analysis-service:
+    build:
+      context: ..
+      dockerfile: infra/docker/dev-grpc-service.Dockerfile
+      args:
+        SERVICE_NAME: analysis-service
+    environment:
+      SERVICE_NAME: analysis-service
+      PORT: "50051"
+    restart: unless-stopped
+
+  media-service:
+    build:
+      context: ..
+      dockerfile: infra/docker/dev-grpc-service.Dockerfile
+      args:
+        SERVICE_NAME: media-service
+    environment:
+      SERVICE_NAME: media-service
+      PORT: "50051"
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  redis_data:

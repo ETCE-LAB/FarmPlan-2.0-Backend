@@ -1,0 +1,22 @@
+meta {
+  name: Guest access to catalog
+  type: http
+  seq: 2
+}
+
+get {
+  url: {{gateway_url}}/api/v1/modules/catalog/access
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{guest_token}}
+}
+
+tests {
+  test("guest can access an enabled guest module", function() {
+    expect(res.getStatus()).to.equal(200);
+    expect(res.getBody().module_id).to.equal("catalog");
+    expect(res.getBody().account_type).to.equal("guest");
+  });
+}

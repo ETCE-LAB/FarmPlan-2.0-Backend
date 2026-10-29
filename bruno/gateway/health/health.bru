@@ -1,0 +1,17 @@
+meta {
+  name: Gateway health
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{gateway_url}}/healthz
+}
+
+tests {
+  test("gateway reports healthy", function() {
+    expect(res.getStatus()).to.equal(200);
+    expect(res.getBody().status).to.equal("ok");
+    expect(res.getBody().service).to.equal("api-gateway");
+  });
+}

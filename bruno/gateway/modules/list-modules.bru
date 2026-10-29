@@ -1,0 +1,25 @@
+meta {
+  name: List module availability as guest
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{gateway_url}}/api/v1/modules
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{guest_token}}
+}
+
+tests {
+  test("module listing distinguishes release and guest access", function() {
+    expect(res.getStatus()).to.equal(200);
+    const modules = Object.fromEntries(res.getBody().modules.map((module) => [module.id, module]));
+    expect(modules.catalog.enabled).to.equal(true);
+    expect(modules.catalog.accessible).to.equal(true);
+    expect(modules.farms.enabled).to.equal(true);
+    expect(modules.farms.accessible).to.equal(false);
+  });
+}

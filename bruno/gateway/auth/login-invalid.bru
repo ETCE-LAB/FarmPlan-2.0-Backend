@@ -1,0 +1,25 @@
+meta {
+  name: Reject invalid login
+  type: http
+  seq: 4
+}
+
+script:pre-request {
+  bru.setEnvVar("unknown_email", "unknown-" + Date.now() + "@example.test");
+}
+
+post {
+  url: {{gateway_url}}/api/v1/auth/login
+  body: json
+}
+
+body:json {
+  email: "{{unknown_email}}"
+  password: "not-the-correct-password"
+}
+
+tests {
+  test("invalid credentials are rejected", function() {
+    expect(res.getStatus()).to.equal(401);
+  });
+}
