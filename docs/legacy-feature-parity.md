@@ -1,0 +1,70 @@
+# Legacy feature parity and migration requirements
+
+## Mandatory scope
+
+**Every capability of the legacy backend must be accounted for in the new backend.** Migration is not complete until each capability below has an owning service, an implemented replacement, an explicit API/data compatibility decision, and passing acceptance/regression tests. Do not silently remove functionality. Preserve intended user outcomes and data, not security vulnerabilities or accidental implementation bugs. Any intentional behavior correction must be documented and tested.
+
+This document is a source-inspected baseline, not a claim that parity is already implemented or tested. All rows below are **required; parity unverified**. Existing implementations in the new backend must be assessed against these criteria before marking them complete.
+
+## Source and evidence
+
+Inspected on 5 November 2026, read-only, at:
+
+```text
+/home/fingadumbledore/Documents/allgemein/studium/wintersemester_26_27/projekt/FarmPlan/backend/
+```
+
+Evidence: `app.py`, `plant_images.py`, `plant_image_cache.py`, `import_treeline.py`, `API.md`, `README.md`, `DATALICENSE&ATTRIBUTION.md`, the CSV header and `Species.txt`. The directory is outside this repository; its absolute path is a local inspection reference, not a portable dependency. Before implementation, record the legacy repository revision and establish approved, versioned fixtures without secrets or personal data. No legacy code was executed, no MongoDB data was inspected, and no external services were called.
+
+The legacy API documentation also describes frontend integrations and farm endpoints in its sibling `backend-next/`. Those references are requirements to investigate, not evidence that the supplied Flask directory implements them. Frontend-only planning, guest import/export and external-provider behavior require a separate consumer audit before declaring system-wide parity.
+
+## Feature inventory and acceptance matrix
+
+| ID | Legacy evidence and capability | New owner | Required acceptance/regression coverage |
+| --- | --- | --- | --- |
+| LEG-01 | `GET /api/health`: process liveness, `{status: ok}`. Does not prove MongoDB or raster readiness. | API Gateway; individual service health | Liveness remains available; dependency readiness is separate; document old/new route mapping and statuses. |
+| LEG-02 | `GET/POST /api/farms`, `PUT/DELETE /api/farms/<farm_id>` currently return `410 Gone`. `API.md` points to authenticated `/api/v1/farms` list/create/update/delete in the sibling backend. | Farm/Field through Gateway, Identity for caller identity | Preserve farm-management outcomes through authenticated replacements; enforce ownership/membership, reject guests/foreign farm IDs as required by policy, round-trip nested field data. Legacy unauthenticated writes must not be re-enabled. Audit real stored schemas and consumers before data migration. |
+| LEG-03 | `import_treeline.py`: explicit operator CSV import; safe default is upsert; `--reset` intentionally deletes existing records. `POST /api/treeline/import` is disabled with `410`. | Catalog import job/worker | Controlled operator/admin execution, configured approved dataset, no arbitrary client-supplied server paths; repeatable import by `source_id`; batch/partial-failure behavior and job status; explicit authorization/approval for destructive replacement. No GET or startup side-effect imports. |
+| LEG-04 | `app.py:normalize_key`, `parse_range_midpoint`, `split_zones`, `to_document`: header normalization, whitespace trimming, source IDs, decimal/range parsing, derived heights/lifespans/calories/shares and hardiness-zone lists/counts. | Catalog | Fixtures for UTF-8 BOM, empty/unnamed columns, missing IDs, comma decimals, en-dash ranges, missing values and semicolon-separated zones. Preserve names, category, strata, purpose, spacing, share, hardiness and original source values. Verify the share-column normalization contract described below. |
+| LEG-05 | `GET /api/treeline/overview`: dashboard `stats`, `fieldLogs`, `performance`, `meta`. | Catalog through Gateway | Totals, category count, mean mature height and calories; first 14 record summaries; top 10 nonzero calorie entries; empty-data output; metadata totals and zone count. Define deterministic ordering and rounding. Preserve useful dataset provenance without leaking server filesystem paths. |
+| LEG-06 | `GET /api/treeline/records`: combined literal case-insensitive search over ID/German/English/Latin names; exact category, strata and hardiness filters. | Catalog through Gateway | Search across all four fields; regex characters treated literally; combined filters; empty/`all` means no restriction; search truncation/limit policy explicitly mapped. Retain multilingual data even though project documentation is English. |
+| LEG-07 | Same records endpoint: `page=1`, `limit=10` by default; page minimum 1, limit 1–100; invalid integers fall back; requested page clamps to last page; at least one page even when empty; `source_id` ascending. | Catalog through Gateway | Pagination boundaries, invalid values, empty dataset, stable ordering, total/totalPages/hasPrev/hasNext; document any intentional stricter validation in the versioned API. |
+| LEG-08 | Same records endpoint: `records`, `pagination`, echoed `filters`, dataset-wide sorted distinct `options`; each record contains display fields, calories and `rawDetails` without MongoDB `_id`. | Catalog through Gateway | Preserve display/fallback fields and full required plant detail; filter options remain independent of current query. Define an approved detail schema rather than exposing arbitrary database columns; no necessary CSV information lost. |
+| LEG-09 | `POST /api/hardiness/field`: polygon analysis of configured GeoTIFF; dominant zone, percentage distribution, valid pixel count and temperature interval. | Analysis worker through Gateway | Synthetic raster golden tests for all zone codes, percentage rounding, dominance/ties, NoData/empty selection, unknown codes, no overlap and raster errors. Preserve `all_touched=True` sampling or document/test a deliberate change. Define job/result contract for asynchronous processing. |
+| LEG-10 | Same hardiness route: 3–5000 `[latitude, longitude]` points; numeric/non-boolean values, geographic ranges, at least three distinct points, nonzero area; geometry repair before masking. | Analysis, Gateway input schema | Boundary limits, invalid JSON/types, boolean/NaN/infinite values, axis swaps, degenerate/self-intersecting geometry and explicit repair policy. Validate raster CRS and transform explicitly; never assume raster coordinates equal input coordinates. Preserve old-axis compatibility through an explicit adapter if the new contract uses GeoJSON `[longitude, latitude]`. |
+| LEG-11 | `GET /api/plant-images`: image list with `count`; default excludes IDs matching `^__PENDING` and empty image URLs; `include_pending=true` disables these filters. | Media through Gateway | Default/include-pending behavior, empty/missing URLs, count, metadata schema and absence of MongoDB internals. Any pagination introduced must retain an explicit client migration path. |
+| LEG-12 | `GET /api/plant-images/<source_id>`: uppercase-normalized lookup; image metadata or `404` with `not_found`. | Media through Gateway | Case-insensitive source-ID usage, known/unknown IDs, stable linkage to catalog IDs and documented response/status mapping. |
+| LEG-13 | `plant_images.py:SEED_IMAGES`: curated records with plant/source IDs, image/source-page URLs, license names/URLs, author names/URLs and access dates. Seed, PUT and DELETE routes currently return `410`. | Media admin jobs and authorized mutations | Preserve curated metadata, attribution, pending records and catalog linkage; versioned idempotent seed/import; authorized upsert/delete; deny unauthorized writes. Do not reintroduce automatic startup seeding or public mutation. |
+| LEG-14 | `plant_image_cache.py:cache_image`: reusable persistent cache helper, not a route registered by the supplied Flask app. Wikimedia HTTPS allowlist, URL-versioned hash filenames, source-ID sanitization, supported MIME types, 20 MiB transfer cap, 20-second timeout, temporary-file cleanup and atomic replacement. | Media worker, Object Storage/CDN | Cache hit avoids download; changed URL invalidates key; size/type/timeouts and interrupted download handled; safe filenames, concurrent writes and cleanup; validate redirect destinations before requesting them to prevent SSRF. Preserve bounded fetching, not the legacy local path layout. Verify actual consumers separately. |
+| LEG-15 | CSV, `Species.txt`, derived hardiness TIFF/PNG and attribution document are legacy assets. CSV includes names, purpose, hardiness, height, lifespan, calories, recommended/minimum spacing and typical share. | Catalog for plant data; Analysis for raster; Media for image assets | Approved asset transfer with checksums, source/version metadata, row/ID and field reconciliation, species/image referential checks; Object Storage for binaries; migration validation before cutover. Keep license/attribution evidence. Raster-generation pipeline is not present in this directory. |
+| LEG-16 | `API.md` describes BGR ArcGIS soil identification, Nominatim search, Open-Meteo and BrightSky as frontend integrations, not Flask endpoints. | Analysis adapters; Gateway contracts; frontend integration audit | Verify actual client requests and required outputs; preserve soil, geocoding and weather/climate user outcomes through adapters with timeouts, quotas, bounded retries and privacy controls. Mock tests by default; provider choice/compatibility must be explicit. |
+
+## Important source discrepancies: do not copy blindly
+
+1. **Hardiness temperature mapping:** `app.py` defines the zone map and analysis function twice. The later definitions are effective. The later `ZONE_TO_TMP` uses positive lower bounds for `6a` (`23.3`) and `7a` (`17.8`), unlike the earlier negative bounds. Resolve against an approved scientific reference and test every interval; do not make these sign errors a parity requirement.
+2. **Typical share normalization contract:** the CSV header is `Typical share %`, which normalizes to `typical_share`; `to_document` derives `typical_share_mid_pct` from that normalized field. Preserve both the raw share and its numeric meaning. Test the real CSV header rather than assuming the percent sign remains in the stored key.
+3. **Import safety:** helper `import_csv_to_mongo` defaults `reset=True`, but the operator CLI explicitly supplies `reset=args.reset` and therefore defaults to non-destructive upsert. Preserve the safe operator behavior; do not expose the destructive helper default.
+4. **Image filters:** MongoDB `$ne: ""` also matches missing URL fields. Test actual missing/null/empty cases rather than relying solely on the legacy prose that describes exclusion of records without URLs.
+5. **Image-cache reachability:** a helper existing in the directory does not prove it is exposed by the Flask API. Preserve the capability and audit consumers without inventing a legacy endpoint.
+6. **Data exposure:** overview `meta.csvPath` exposes a local path; `rawDetails` exposes nearly every catalog column. Replace these with approved provenance and explicit schemas while retaining required consumer information.
+7. **Missing image response:** the lookup uppercases the database query, but its `404` payload echoes the original input ID. Document the new normalization/error contract instead of assuming all responses uppercase IDs.
+
+## Data, API and operational compatibility
+
+- Keep a route/operation mapping from every legacy route above to its new HTTP/gRPC/job contract. Functional parity does not require retaining Flask, MongoDB, insecure endpoints, or every legacy URL, but client-breaking changes require an explicit compatibility adapter or coordinated consumer migration.
+- Before data cutover, inspect authorized exports of farm documents, catalog records and image metadata. Define ID mapping, nested field preservation, numeric/null semantics, duplicate handling and reconciliation reports. Never log personal farm payloads.
+- Do not introduce MongoDB into the new architecture merely for parity. Transform approved exports into service-owned PostgreSQL models and transfer binaries to Object Storage.
+- Preserve the derived raster's documented provenance: CHELSA-daily, 1990–2024, every two years excluding 2022, selected months January–April and December. The legacy attribution file states CC0 1.0; verify applicable source terms and retain attribution before redistribution. Do not claim the generation process is reproducible from this backend alone.
+- English is required for documentation and agent instructions, not for rewriting stored German/English/Latin plant names or breaking data keys.
+- Keep disabled legacy mutation routes disabled until authorized replacements exist. In the new API, choose appropriate authorization/error semantics rather than indiscriminately returning `410` for new functionality.
+
+## Migration completion checklist
+
+- [ ] Pin source revision; finish consumer audit, including external integrations and frontend-only capabilities.
+- [ ] Confirm all inventory rows with stakeholders and add any newly discovered behavior; do not reduce scope implicitly.
+- [ ] Map every row to implementation paths, HTTP/gRPC/job contracts and concrete automated tests.
+- [ ] Resolve scientific/data discrepancies with approved expected results and regression fixtures.
+- [ ] Complete authorized dataset and persisted-data migration with reconciliation and recovery/cutover procedures.
+- [ ] Demonstrate all user-visible and operator workflows in the new backend, including negative/security cases.
+- [ ] Run parity tests and relevant integration tests; record exact commands and results. Mocks do not prove real raster/database/provider integration.
+- [ ] Verify client compatibility and safe retirement of legacy routes. Only then mark migration complete in the [roadmap](roadmap.md).
