@@ -11,6 +11,7 @@ import re
 import secrets
 import time
 import uuid
+from datetime import datetime, timezone
 from typing import NoReturn
 from urllib.parse import urlparse
 
@@ -45,7 +46,7 @@ def _b64encode(value: bytes) -> str:
     return base64.urlsafe_b64encode(value).rstrip(b"=").decode("ascii")
 
 
-def issue_token(user_id: str, account_type: str) -> str:
+def issue_token(user_id: str, account_type: str, token_version: int = 0) -> str:
     try:
         uuid.UUID(user_id)
     except (ValueError, TypeError, AttributeError) as error:
@@ -58,6 +59,7 @@ def issue_token(user_id: str, account_type: str) -> str:
         json.dumps(
             {
                 "sub": user_id,
+                "ver": token_version,
                 "account_type": account_type,
                 "iss": TOKEN_ISSUER,
                 "iat": now,
@@ -137,16 +139,17 @@ class IdentityService(identity_pb2_grpc.IdentityServiceServicer):
         user_id = str(uuid.uuid4())
         password_hash = await asyncio.to_thread(hash_password, request.password)
         try:
-            await self.pool.execute(
-                "INSERT INTO users (id, email, display_name, password_hash) VALUES ($1, $2, $3, $4)",
-                uuid.UUID(user_id),
-                email,
-                display_name,
-                password_hash,
-            )
+            async with self.pool.acquire() as db:
+                async with db.transaction():
+                    await db.execute(
+                        "INSERT INTO users (id, email, display_name, password_hash) VALUES ($1, $2, $3, $4)",
+                        uuid.UUID(user_id), email, display_name, password_hash,
+                    )
+                    row = await db.fetchrow("SELECT * FROM users WHERE id = $1", uuid.UUID(user_id))
+                    response = await self._persist_session(db, row)
         except asyncpg.UniqueViolationError:
             await abort(context, grpc.StatusCode.ALREADY_EXISTS, "An account with this email already exists.")
-        return self._auth_response(user_id, "user")
+        return response
 
     async def Login(self, request, context):
         email = request.email.strip().lower()
@@ -161,7 +164,7 @@ class IdentityService(identity_pb2_grpc.IdentityServiceServicer):
         password_matches = await asyncio.to_thread(verify_password, request.password, encoded_hash)
         if row is None or not password_matches:
             await abort(context, grpc.StatusCode.UNAUTHENTICATED, "Invalid email or password.")
-        return self._auth_response(str(row["id"]), "user")
+        return await self._new_session(str(row["id"]), context, row["password_hash"])
 
     async def CreateGuestSession(self, request, context):
         return self._auth_response(str(uuid.uuid4()), "guest")
@@ -175,27 +178,122 @@ class IdentityService(identity_pb2_grpc.IdentityServiceServicer):
         account_type = str(claims["account_type"])
         if account_type == "guest":
             return identity_pb2.UserProfile(
-                user_id=user_id, display_name="Guest", account_type="guest"
+                user_id=user_id, display_name="Guest", account_type="guest",
+                created_at=datetime.fromtimestamp(claims["iat"], timezone.utc).isoformat().replace("+00:00", "Z"),
+                updated_at=datetime.fromtimestamp(claims["iat"], timezone.utc).isoformat().replace("+00:00", "Z")
             )
-        row = await self.pool.fetchrow(
-            "SELECT id, email, display_name FROM users WHERE id = $1", uuid.UUID(user_id)
-        )
-        if row is None:
-            await abort(context, grpc.StatusCode.NOT_FOUND, "User account was not found.")
+        row = await self._authenticated(request.access_token, context)
+        return self._profile(row)
+
+    @staticmethod
+    def _profile(row):
         return identity_pb2.UserProfile(
-            user_id=str(row["id"]),
-            email=row["email"],
-            display_name=row["display_name"],
-            account_type="user",
+            user_id=str(row["id"]), email=row["email"],
+            display_name=row["display_name"], account_type="user",
+            created_at=row["created_at"].isoformat().replace("+00:00", "Z"),
+            updated_at=row["updated_at"].isoformat().replace("+00:00", "Z"),
+        )
+
+    async def _authenticated(self, token, context, connection=None):
+        try:
+            claims = verify_token(token)
+        except ValueError:
+            await abort(context, grpc.StatusCode.UNAUTHENTICATED, "Invalid or expired access token.")
+        if claims["account_type"] != "user":
+            await abort(context, grpc.StatusCode.PERMISSION_DENIED, "A registered account is required.")
+        db = connection if connection is not None else self.pool
+        row = await db.fetchrow("SELECT * FROM users WHERE id = $1" +
+                                (" FOR UPDATE" if connection is not None else ""), uuid.UUID(claims["sub"]))
+        if row is None or claims.get("ver", 0) != row["token_version"]:
+            await abort(context, grpc.StatusCode.UNAUTHENTICATED, "Invalid or expired access token.")
+        return row
+
+    async def _new_session(self, user_id, context, password_hash=None):
+        async with self.pool.acquire() as db:
+            async with db.transaction():
+                row = await db.fetchrow("SELECT * FROM users WHERE id = $1 FOR UPDATE", uuid.UUID(user_id))
+                if row is None or (password_hash is not None and row["password_hash"] != password_hash):
+                    await abort(context, grpc.StatusCode.UNAUTHENTICATED, "Account credentials changed.")
+                return await self._persist_session(db, row)
+
+    async def _persist_session(self, db, row):
+        refresh = secrets.token_urlsafe(48)
+        await db.execute("INSERT INTO identity_refresh_tokens (token_hash, user_id, expires_at) "
+                         "VALUES ($1, $2, now() + interval '30 days')",
+                         hashlib.sha256(refresh.encode()).hexdigest(), row["id"])
+        return identity_pb2.AuthResponse(
+            access_token=issue_token(str(row["id"]), "user", row["token_version"]),
+            token_type="Bearer", user_id=str(row["id"]), account_type="user",
+            expires_in=3600, user=self._profile(row), refresh_token=refresh,
+            refresh_expires_in=30 * 86400,
         )
 
     @staticmethod
+    def _refresh_hash(token):
+        if not 32 <= len(token) <= 256:
+            return ""
+        return hashlib.sha256(token.encode()).hexdigest()
+
+    async def Refresh(self, request, context):
+        token_hash = self._refresh_hash(request.refresh_token)
+        async with self.pool.acquire() as db:
+            async with db.transaction():
+                # Lock the user before consuming the token, matching password/delete lock order.
+                row = await db.fetchrow(
+                    "SELECT u.* FROM users u JOIN identity_refresh_tokens r ON r.user_id = u.id "
+                    "WHERE r.token_hash = $1 AND r.expires_at > now() FOR UPDATE OF u", token_hash)
+                if row is None:
+                    await abort(context, grpc.StatusCode.UNAUTHENTICATED, "Invalid or expired refresh token.")
+                consumed = await db.fetchrow(
+                    "DELETE FROM identity_refresh_tokens WHERE token_hash = $1 AND expires_at > now() RETURNING user_id", token_hash)
+                if consumed is None:
+                    await abort(context, grpc.StatusCode.UNAUTHENTICATED, "Invalid or expired refresh token.")
+                return await self._persist_session(db, row)
+
+    async def Logout(self, request, context):
+        await self.pool.execute("DELETE FROM identity_refresh_tokens WHERE token_hash = $1",
+                                self._refresh_hash(request.refresh_token))
+        return identity_pb2.EmptyResponse()
+
+    async def UpdateProfile(self, request, context):
+        if request.HasField("display_name") and not 1 <= len(request.display_name.strip()) <= 120:
+            await abort(context, grpc.StatusCode.INVALID_ARGUMENT, "Display name must be between 1 and 120 characters.")
+        async with self.pool.acquire() as db:
+            async with db.transaction():
+                row = await self._authenticated(request.access_token, context, db)
+                if request.HasField("display_name"):
+                    row = await db.fetchrow("UPDATE users SET display_name = $2, updated_at = now() WHERE id = $1 RETURNING *",
+                                            row["id"], request.display_name.strip())
+                return self._profile(row)
+
+    async def ChangePassword(self, request, context):
+        if not 12 <= len(request.new_password) <= 256 or not 1 <= len(request.current_password) <= 256:
+            await abort(context, grpc.StatusCode.INVALID_ARGUMENT, "Invalid password length.")
+        new_hash = await asyncio.to_thread(hash_password, request.new_password)
+        async with self.pool.acquire() as db:
+            async with db.transaction():
+                row = await self._authenticated(request.access_token, context, db)
+                if not await asyncio.to_thread(verify_password, request.current_password, row["password_hash"]):
+                    await abort(context, grpc.StatusCode.UNAUTHENTICATED, "Invalid current password.")
+                await db.execute("UPDATE users SET password_hash = $2, token_version = token_version + 1, updated_at = now() WHERE id = $1", row["id"], new_hash)
+                await db.execute("DELETE FROM identity_refresh_tokens WHERE user_id = $1", row["id"])
+        return identity_pb2.EmptyResponse()
+
+    async def DeleteSelf(self, request, context):
+        async with self.pool.acquire() as db:
+            async with db.transaction():
+                row = await self._authenticated(request.access_token, context, db)
+                await db.execute("DELETE FROM users WHERE id = $1", row["id"])
+        return identity_pb2.EmptyResponse()
+
+    @staticmethod
     def _auth_response(user_id: str, account_type: str):
+        now = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
         return identity_pb2.AuthResponse(
-            access_token=issue_token(user_id, account_type),
-            token_type="Bearer",
-            user_id=user_id,
-            account_type=account_type,
+            access_token=issue_token(user_id, account_type), token_type="Bearer",
+            user_id=user_id, account_type=account_type, expires_in=86400,
+            user=identity_pb2.UserProfile(user_id=user_id, display_name="Guest",
+                                          account_type="guest", created_at=now, updated_at=now),
         )
 
 

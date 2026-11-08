@@ -22,4 +22,13 @@ This record complements, and does not replace, the mandatory commit trailers and
 - **Publishing state at preparation:** created `docs/agent-skills-decisions-workflow` at the user's request. The read-only remote query returned `main` but no `develop`; GitHub CLI authentication reported an invalid token. Publishing and PR creation require working authentication and an established target integration branch. The pre-existing user deletion of `.agents/.skills/TESTS.md` remains outside this contribution's staged scope.
 - **Human review:** pending PR review. This record does not claim reviewed acceptance or configured enforcement.
 
+## 2026-11-08 — Identity and gateway wishlist increment
+
+- **AI-assisted:** yes.
+- **Provider/model:** OpenAI GPT-6.1-Sol (coordinator and both implementation subagents).
+- **Scope:** Identity protobuf additions, Identity implementation/migration/tests and lifecycle README; Gateway auth/user/module contracts, global errors, cookie transport, tests and README; affected Bruno requests; architecture, roadmap, development notes and this record. The pre-existing wishlist and deleted historical skill are user work, not attributed here.
+- **Assistance:** implemented account lifecycle and typed camelCase HTTP contracts; documented deliberate response/error compatibility changes, session policy, and outstanding integration/cleanup work.
+- **Validation:** `.venv/bin/python -m pytest -q` passed all 82 discovered tests with no skips. `git --no-pager diff --check` passed. Tests use mocked gRPC and an Identity SQL test double; real PostgreSQL migration/rollback/concurrency, live gRPC, browser/proxy, Bruno execution, and legacy parity checks were not run. Dependency/schema warnings remain visible. No branches, commits, pushes, deployments, or paid calls were performed.
+- **Human review:** pending; missing integration validation prevents claiming production or merge readiness.
+
 For commits containing this model's assistance, use `AI-Assisted: yes`, `AI-Model: OpenAI GPT-6.1-Sol`, and `Co-authored-by: OpenAI GPT-6.1-Sol <openai-gpt-6.1-sol@contributors.invalid>`. The non-deliverable address identifies the model for provenance; it is not a verified provider account.

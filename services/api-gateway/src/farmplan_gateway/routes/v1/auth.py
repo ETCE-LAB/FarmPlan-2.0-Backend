@@ -1,68 +1,50 @@
-"""Version 1 authentication routes."""
+"""Authentication transport; refresh credentials are never returned in JSON."""
 
-from typing import Any
-
+from fastapi import Depends, HTTPException, Request, Response
 from starlette.concurrency import run_in_threadpool
 
 
-def register(app, deps) -> None:
-    async def register_account(request: Any) -> dict[str, str]:
-        try:
-            response = await run_in_threadpool(
-                deps.identity_client.Register,
-                deps.identity_pb2.RegisterRequest(
-                    email=request.email,
-                    password=request.password,
-                    display_name=request.display_name,
-                ),
-                timeout=10,
-            )
-            return deps.auth_payload(response)
-        except deps.grpc.RpcError as error:
-            deps.raise_http_error(error)
-            raise RuntimeError("unreachable") from error
+def register(app, deps):
+    def add_auth(path, rpc_name, request_model=None, status_code=200):
+        if request_model:
+            async def endpoint(request, response: Response):
+                fields = request.model_dump()
+                result = await run_in_threadpool(getattr(deps.identity_client, rpc_name),
+                    getattr(deps.identity_pb2, rpc_name + "Request")(**fields), timeout=10)
+                return deps.auth_payload(result, response)
+            endpoint.__annotations__["request"] = request_model
+        else:
+            async def endpoint(response: Response):
+                result = await run_in_threadpool(deps.identity_client.CreateGuestSession,
+                    deps.identity_pb2.GuestSessionRequest(), timeout=10)
+                return deps.auth_payload(result, response)
+        endpoint.__name__ = rpc_name
+        app.add_api_route("/api/v1/auth/" + path, endpoint, methods=["POST"],
+            status_code=status_code, response_model=deps.AuthResponse,
+            dependencies=[Depends(deps.cookie_origin)], tags=["authentication"])
 
-    register_account.__annotations__["request"] = deps.RegisterRequest
-    app.add_api_route(
-        "/api/v1/auth/register",
-        register_account,
-        methods=["POST"],
-        status_code=201,
-        tags=["authentication"],
-    )
+    add_auth("register", "Register", deps.RegisterRequest, 201)
+    add_auth("login", "Login", deps.LoginRequest)
+    add_auth("guest", "CreateGuestSession")
 
-    async def login(request: Any) -> dict[str, str]:
-        try:
-            response = await run_in_threadpool(
-                deps.identity_client.Login,
-                deps.identity_pb2.LoginRequest(email=request.email, password=request.password),
-                timeout=10,
-            )
-            return deps.auth_payload(response)
-        except deps.grpc.RpcError as error:
-            deps.raise_http_error(error)
-            raise RuntimeError("unreachable") from error
+    async def refresh(request: Request, response: Response):
+        token = request.cookies.get("refresh_token")
+        if not token:
+            raise HTTPException(401, "Refresh cookie required.")
+        result = await run_in_threadpool(deps.identity_client.Refresh,
+            deps.identity_pb2.RefreshRequest(refresh_token=token), timeout=10)
+        return deps.auth_payload(result, response)
 
-    login.__annotations__["request"] = deps.LoginRequest
-    app.add_api_route(
-        "/api/v1/auth/login", login, methods=["POST"], tags=["authentication"]
-    )
+    async def logout(request: Request):
+        token = request.cookies.get("refresh_token")
+        if token:
+            await run_in_threadpool(deps.identity_client.Logout,
+                deps.identity_pb2.LogoutRequest(refresh_token=token), timeout=10)
+        response = Response(status_code=204)
+        deps.clear_refresh_cookie(response)
+        return response
 
-    async def create_guest_session() -> dict[str, str]:
-        try:
-            response = await run_in_threadpool(
-                deps.identity_client.CreateGuestSession,
-                deps.identity_pb2.GuestSessionRequest(),
-                timeout=10,
-            )
-            return deps.auth_payload(response)
-        except deps.grpc.RpcError as error:
-            deps.raise_http_error(error)
-            raise RuntimeError("unreachable") from error
-
-    app.add_api_route(
-        "/api/v1/auth/guest",
-        create_guest_session,
-        methods=["POST"],
-        tags=["authentication"],
-    )
+    app.add_api_route("/api/v1/auth/refresh", refresh, methods=["POST"],
+        response_model=deps.AuthResponse, dependencies=[Depends(deps.cookie_origin)], tags=["authentication"])
+    app.add_api_route("/api/v1/auth/logout", logout, methods=["POST"], status_code=204,
+        dependencies=[Depends(deps.cookie_origin)], tags=["authentication"])

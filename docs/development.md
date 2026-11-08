@@ -44,6 +44,12 @@ docker compose --env-file .env -f infra/compose.yaml up --build -d
 
 This variant requires an existing `.env`. Do not commit secrets; Compose defaults are for local development only. Bind addresses, host ports, `APP_ENV`, `JWT_SECRET`, `ENABLED_MODULES`, and `GUEST_ENABLED_MODULES` are configurable. Enabled modules are not necessarily implemented modules.
 
+### Identity wishlist migration and validation
+
+Apply `services/identity-service/migrations/002_identity_sessions.sql` before starting the updated Identity service; use the existing migration task, which processes SQL files in filename order. It adds user credential versions/timestamps and hashed refresh sessions. No live migration was executed during this increment.
+
+On November 8, 2026, `.venv/bin/python -m pytest -q` passed all 82 discovered tests without skips. Gateway tests mock gRPC and Identity tests use a SQL double, so live PostgreSQL migration/rollback/concurrency and gateway-to-service acceptance remain unverified. The run emitted pytest-asyncio, Starlette/AnyIO, and Pydantic alias-schema warnings; registration alias behavior is covered by tests. See the service READMEs for cookie/proxy policy and compatibility changes. Bruno requests were updated but not executed.
+
 ### Python tests
 
 ```sh

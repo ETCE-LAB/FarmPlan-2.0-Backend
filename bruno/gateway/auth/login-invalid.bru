@@ -20,6 +20,7 @@ body:json {
 
 tests {
   test("invalid credentials are rejected", function() {
+    expect(res.getBody().error.code).to.equal("unauthenticated");
     expect(res.getStatus()).to.equal(401);
   });
 }

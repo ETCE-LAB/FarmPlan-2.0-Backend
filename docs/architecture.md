@@ -7,7 +7,7 @@
 | Component | Actually present |
 | --- | --- |
 | `services/api-gateway` | FastAPI, versioned HTTP routes, bearer authentication through Identity, module/guest access control, and a Farm gRPC client. Only Identity and Farm are connected as domain clients. |
-| `services/identity-service` | gRPC for registration, login, guest identities, and profile/token validation; PostgreSQL usage and a user migration. |
+| `services/identity-service` | gRPC for registration, login, guest identities, profile/token validation, refresh rotation/logout, profile updates, password changes, and self-deletion; PostgreSQL users and hashed refresh sessions. See [Identity lifecycle](../services/identity-service/README.md). |
 | `services/farm-service` | Owner-scoped farm CRUD over gRPC; a `farms` table with JSONB data. Fields currently reside within farm data; no independent Field persistence or membership implementation has been established. |
 | `services/catalog-service`, `planning-service`, `analysis-service`, `media-service` | Directory structure; Compose starts the shared gRPC health process for each, not a domain implementation. |
 | `services/background-worker` | Prepared directories, no worker code or Compose service. |
@@ -18,6 +18,8 @@
 [Compose](../infra/compose.yaml) runs Identity and Farm migrations as one-off tasks. By default, the gateway publishes port `8000`, PostgreSQL `5433`, and Redis `6380`, all bound to loopback. Internal gRPC services use port `50051` without host publication. Connections currently use unencrypted internal gRPC; production hardening has not been demonstrated.
 
 The [Farm migration](../services/farm-service/migrations/001_create_farms.sql) contains only the farm table and index. [Farm writes](../services/farm-service/src/farmplan_farm/main.py) do not write to an outbox. There is no Catalog outbox, outbox processing, or implemented external analysis, GeoTIFF, object-storage, or CDN adapter. Gateway module enablement is not evidence of these capabilities.
+
+Auth, user, and module responses now use camelCase and explicit response models. Gateway errors use a shared envelope; refresh credentials use an HttpOnly cookie. See [Gateway compatibility and security policy](../services/api-gateway/README.md). Farm success contracts remain unchanged and do not yet meet the wishlist. Optional user settings and cross-service account-deletion cleanup remain unimplemented. These implementations have unit/mock coverage, not verified live PostgreSQL/gRPC integration.
 
 ## Target architecture – not yet fully implemented
 

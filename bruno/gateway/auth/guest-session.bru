@@ -12,9 +12,9 @@ tests {
   test("guest session is anonymous and returns a bearer token", function() {
     expect(res.getStatus()).to.equal(200);
     const body = res.getBody();
-    expect(body.account_type).to.equal("guest");
-    expect(body.token_type).to.equal("Bearer");
-    expect(body.access_token).to.be.a("string");
-    bru.setEnvVar("guest_token", body.access_token);
+    expect(body.user.accountType).to.equal("guest");
+    expect(body.tokenType).to.equal("Bearer");
+    expect(body.accessToken).to.be.a("string");
+    bru.setEnvVar("guest_token", body.accessToken);
   });
 }

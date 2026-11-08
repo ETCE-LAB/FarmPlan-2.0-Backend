@@ -9,9 +9,13 @@ from datetime import datetime
 from typing import Annotated, NoReturn
 
 import grpc
-from fastapi import Depends, FastAPI, HTTPException, status
+from fastapi import Depends, FastAPI, HTTPException, Request, Response, status
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
+from starlette.exceptions import HTTPException as StarletteHTTPException
+from urllib.parse import urlsplit
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator, model_validator
 from starlette.concurrency import run_in_threadpool
 
 from farm.v1 import farm_pb2, farm_pb2_grpc
@@ -38,7 +42,90 @@ security = HTTPBearer(auto_error=False)
 APP_ENV = os.environ.get("APP_ENV", "development").strip().lower()
 if APP_ENV not in {"development", "test", "production"}:
     raise RuntimeError("APP_ENV must be development, test, or production.")
+class ErrorDetail(BaseModel):
+    path: str
+    code: str
+    message: str
+
+
+class ErrorBody(BaseModel):
+    code: str
+    message: str
+    details: list[ErrorDetail] = Field(default_factory=list)
+
+
+class ErrorResponse(BaseModel):
+    error: ErrorBody
+
+
+class UserResponse(BaseModel):
+    id: str
+    email: str
+    displayName: str
+    accountType: str
+    createdAt: str
+    updatedAt: str
+
+
+class AuthResponse(BaseModel):
+    accessToken: str
+    tokenType: str
+    expiresIn: int
+    user: UserResponse
+
+
+class ProfileUpdateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    displayName: str = Field(min_length=1, max_length=120)
+
+    @field_validator("displayName")
+    @classmethod
+    def not_blank(cls, value):
+        if not value.strip():
+            raise ValueError("must not be blank")
+        return value.strip()
+
+
+class PasswordRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    currentPassword: str = Field(min_length=1, max_length=256)
+    newPassword: str = Field(min_length=12, max_length=256)
+
+
+class ModuleResponse(BaseModel):
+    id: str
+    enabled: bool
+    availableToGuest: bool
+    accessible: bool
+
+
+class ModulesResponse(BaseModel):
+    modules: list[ModuleResponse]
+
+
+class ModuleAccessResponse(BaseModel):
+    moduleId: str
+    accessible: bool
+    accountType: str
+
+
+ERRORS = {
+    400: ("invalid_argument", "Invalid request."),
+    401: ("unauthenticated", "Authentication required or credentials invalid."),
+    403: ("permission_denied", "Permission denied."),
+    404: ("not_found", "Resource not found."),
+    405: ("method_not_allowed", "Method not allowed."),
+    409: ("conflict", "Resource conflict."),
+    422: ("validation_failed", "Request validation failed."),
+    429: ("rate_limited", "Too many requests."),
+    500: ("internal_error", "Internal server error."),
+    502: ("upstream_error", "Upstream service request failed."),
+    503: ("upstream_unavailable", "Upstream service unavailable."),
+    504: ("upstream_timeout", "Upstream service timed out."),
+}
+
 app = FastAPI(
+    responses={code: {"model": ErrorResponse} for code in ERRORS},
     title="FarmPlan API",
     version="1.0.0",
     docs_url=None if APP_ENV == "production" else "/docs",
@@ -47,10 +134,40 @@ app = FastAPI(
 )
 
 
+def error_response(status_code, details=None, headers=None):
+    code, message = ERRORS.get(status_code, ("http_error", "Request failed."))
+    return JSONResponse(status_code=status_code, headers=headers,
+        content={"error": {"code": code, "message": message, "details": details or []}})
+
+
+@app.exception_handler(StarletteHTTPException)
+async def http_error_handler(request, exc):
+    return error_response(exc.status_code, headers=exc.headers)
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_error_handler(request, exc):
+    return error_response(422, [dict(path=".".join(map(str, error["loc"])),
+        code=error["type"], message="Invalid value.") for error in exc.errors()])
+
+
+@app.exception_handler(grpc.RpcError)
+async def grpc_error_handler(request, exc):
+    try:
+        raise_http_error(exc)
+    except HTTPException as error:
+        return error_response(error.status_code)
+
+
+@app.exception_handler(Exception)
+async def unexpected_error_handler(request, exc):
+    return error_response(500)
+
+
 class RegisterRequest(BaseModel):
     email: str = Field(min_length=3, max_length=320)
     password: str = Field(min_length=12, max_length=256)
-    display_name: str = Field(min_length=1, max_length=120)
+    display_name: str = Field(min_length=1, max_length=120, validation_alias=AliasChoices("displayName", "display_name"))
 
     @field_validator("email")
     @classmethod
@@ -187,21 +304,58 @@ def raise_http_error(error: grpc.RpcError) -> NoReturn:
         grpc.StatusCode.NOT_FOUND: status.HTTP_404_NOT_FOUND,
         grpc.StatusCode.PERMISSION_DENIED: status.HTTP_403_FORBIDDEN,
         grpc.StatusCode.UNAVAILABLE: status.HTTP_503_SERVICE_UNAVAILABLE,
+        grpc.StatusCode.DEADLINE_EXCEEDED: 504,
+        grpc.StatusCode.RESOURCE_EXHAUSTED: 429,
     }
     raise HTTPException(
         status_code=mapping.get(code, status.HTTP_502_BAD_GATEWAY),
-        detail=(error.details() or "Identity service request failed.")
-        if code in mapping else "Identity service request failed.",
+        detail="Service request failed.",
     ) from error
 
 
-def auth_payload(response: identity_pb2.AuthResponse) -> dict[str, str]:
-    return {
-        "access_token": response.access_token,
-        "token_type": response.token_type,
-        "user_id": response.user_id,
-        "account_type": response.account_type,
-    }
+def profile_payload(user):
+    return dict(id=user.user_id, email=user.email, displayName=user.display_name,
+                accountType=user.account_type, createdAt=user.created_at, updatedAt=user.updated_at)
+
+
+def auth_payload(response, http_response):
+    http_response.headers["Cache-Control"] = "no-store"
+    if response.refresh_token:
+        http_response.set_cookie("refresh_token", response.refresh_token,
+            max_age=response.refresh_expires_in, httponly=True, secure=APP_ENV == "production",
+            samesite="strict", path="/api/v1/auth")
+    else:
+        clear_refresh_cookie(http_response)
+    return dict(accessToken=response.access_token, tokenType=response.token_type,
+                expiresIn=response.expires_in, user=profile_payload(response.user))
+
+
+def clear_refresh_cookie(response):
+    response.delete_cookie("refresh_token", path="/api/v1/auth", httponly=True,
+                           secure=APP_ENV == "production", samesite="strict")
+    response.headers["Cache-Control"] = "no-store"
+
+
+def cookie_origin(request: Request):
+    if request.headers.get("sec-fetch-site", "").lower() == "cross-site":
+        raise HTTPException(403, "Cross-site request rejected.")
+    origin = request.headers.get("origin")
+    if origin is not None:
+        try:
+            parsed = urlsplit(origin)
+        except ValueError:
+            raise HTTPException(403, "Origin rejected.") from None
+        expected = urlsplit(str(request.base_url))
+        if (parsed.scheme not in {"http", "https"} or parsed.username or parsed.password
+                or parsed.path or parsed.query or parsed.fragment
+                or (parsed.scheme, parsed.netloc.lower()) != (expected.scheme, expected.netloc.lower())):
+            raise HTTPException(403, "Origin rejected.")
+
+
+async def access_token(credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(security)]):
+    if credentials is None or credentials.scheme.lower() != "bearer":
+        raise HTTPException(401, "Bearer access token required.")
+    return credentials.credentials
 
 
 async def current_user(
@@ -236,11 +390,12 @@ def raise_farm_http_error(error: grpc.RpcError) -> NoReturn:
         grpc.StatusCode.INVALID_ARGUMENT: status.HTTP_400_BAD_REQUEST,
         grpc.StatusCode.NOT_FOUND: status.HTTP_404_NOT_FOUND,
         grpc.StatusCode.UNAVAILABLE: status.HTTP_503_SERVICE_UNAVAILABLE,
+        grpc.StatusCode.DEADLINE_EXCEEDED: 504,
+        grpc.StatusCode.RESOURCE_EXHAUSTED: 429,
     }
     raise HTTPException(
         status_code=mapping.get(code, status.HTTP_502_BAD_GATEWAY),
-        detail=(error.details() or "Farm service request failed.")
-        if code in mapping else "Farm service request failed.",
+        detail="Service request failed.",
     ) from error
 
 
