@@ -40,4 +40,14 @@ This record complements, and does not replace, the mandatory commit trailers and
 - **Validation:** `.venv/bin/python -m pytest -q` passed 88 tests without skips, including loopback gRPC using JSON state. Compose configuration and diff whitespace checks passed. PostgreSQL, deployed-stack, Bruno, and full legacy-parity acceptance remain unverified. Existing warnings remain. Branch `feat/farm-wishlist-mock` was created with user permission; no commit or push was made for this increment.
 - **Human review:** pending. The pre-existing wishlist and historical skill deletion remain unrelated user work.
 
+## 2026-11-08 — Independent Fields and geometry validation
+
+- **AI-assisted:** yes.
+- **Provider/model:** OpenAI GPT-6.1-Sol (coordinator and implementation subagent).
+- **Scope:** Farm/Field protobuf, service geometry and resource modules, additive Field migration, JSON seed, requirements, tests and README; Gateway Field routes/models, Farm boundary schemas, tests and README; Compose dependency installation; Field Bruno requests; architecture, roadmap, development and this record.
+- **Assistance:** implemented independent Field CRUD, atomic bulk import, owner isolation, bounded WGS84 topology and geodesic measurements, Farm-boundary validation and Field deletion cascades. Explicitly retained embedded legacy data without guessing migration or units; summaries now count only independent Fields. Planning/outbox behavior remains unimplemented.
+- **Validation:** `.venv/bin/python -m pytest -q` passed all 128 tests without skips. Compose configuration and diff whitespace checks passed. Coverage includes loopback gRPC and transaction doubles; live PostgreSQL migration/concurrency/FK behavior, deployed-stack, Bruno and full parity acceptance remain unverified. Docker daemon access was denied. Existing dependency/schema warnings remain.
+- **Git operations:** with user permission, committed the preceding Farm increment as `8c18d58` using author and committer date `2026-11-08T13:30:00+01:00`, then created `feat/field-wishlist`. The user subsequently requested a Field commit using the actual current time and publication of new local feature branches. The full 128-test suite, Compose validation, and whitespace checks passed again before preparation; publication does not establish integration or merge readiness. The wishlist and pre-existing historical skill deletion remain outside the commit.
+- **Human review:** pending; incomplete integration checks block claiming production/merge readiness.
+
 For commits containing this model's assistance, use `AI-Assisted: yes`, `AI-Model: OpenAI GPT-6.1-Sol`, and `Co-authored-by: OpenAI GPT-6.1-Sol <openai-gpt-6.1-sol@contributors.invalid>`. The non-deliverable address identifies the model for provenance; it is not a verified provider account.

@@ -102,8 +102,11 @@ services:
       - ON_ERROR_STOP=1
       - -f
       - /migrations/001_create_farms.sql
+      - -f
+      - /migrations/002_create_fields.sql
     volumes:
       - ../services/farm-service/migrations/001_create_farms.sql:/migrations/001_create_farms.sql:ro
+      - ../services/farm-service/migrations/002_create_fields.sql:/migrations/002_create_fields.sql:ro
     depends_on:
       postgres:
         condition: service_healthy

@@ -38,20 +38,42 @@ return an empty 204. Settings are not implemented because no Identity RPC exists
 
 All HTTP, request-validation, gRPC, and unexpected application errors use
 `{ error: { code, message, details: [{ path, code, message }] } }`.
-Messages are deliberately generic and never forward upstream details or submitted
+Messages are deliberately generic and never forward arbitrary upstream details or submitted
 validation values. Validation paths identify the input location; detail codes are
 Pydantic validation types. Stable top-level codes and response schemas are exposed
 through OpenAPI in development/test. Production documentation remains disabled.
 Farm responses now use typed direct resources and paginated `items`, with GET,
 PATCH, and DELETE 204. Their errors use this global envelope. See the
 [Farm guide](../farm-service/README.md) for legacy adapters, mock mode, and
-unimplemented geometry/Planning capabilities. Consumers must migrate snake_case auth/user/module response reads and
+geometry policies and unimplemented Planning capabilities. Consumers must migrate snake_case auth/user/module response reads and
 legacy `detail` error reads. These are intentional API compatibility changes.
 
-Gateway tests mock gRPC. They do not establish real Identity/database behavior,
+Gateway tests mock Identity and exercise Farm JSON state; Field service tests also use real loopback gRPC. They do not establish real Identity/database behavior,
 refresh concurrency/replay guarantees, browser/proxy acceptance, or legacy parity.
 Bruno session requests require its cookie jar enabled; account deletion and password
 changes are explicit, destructive requests and should use disposable test accounts.
 Set the Bruno `new_password` environment value before running the password request;
 after success, update `registered_password` before another login. Refresh stores the
 new access token as `user_token`; do not run it against the guest session cookie jar.
+
+## Independent Fields
+
+The gateway exposes typed CRUD under `/api/v1/farms/{farm_id}/fields` and
+`/api/v1/fields/{field_id}`, with paginated `{items,total,page,pageSize}` lists.
+Create and atomic `fields:bulk` import return 201; delete returns empty 204.
+Bulk accepts explicit `items` or GeoJSON `FeatureCollection` documents (1–100 entries).
+The [Farm guide](../farm-service/README.md) defines all writable/read-only properties,
+null/default behavior, limits, accepted import documents, summary policy, and
+WGS84 geometry/metric semantics. Farm boundary Polygon input is now supported.
+
+Gateway schemas reject unknown/read-only properties and invalid transport types;
+Farm independently owns topology, containment, metrics, and complete merged PATCH
+validation. Verified Identity supplies the sole-owner identity to internal RPCs;
+clients cannot select an owner. Guests cannot persist Fields. Foreign Field/Farm
+UUIDs return 404. Farm gRPC INVALID_ARGUMENT maps to 422. Only constrained
+validation details are forwarded with generic messages, preserving codes such as
+`self_intersecting` and `outside_farm_boundary`; arbitrary upstream messages are
+never exposed. OpenAPI includes Field request, response, bulk and error models.
+
+AI-assisted Field increment: OpenAI GPT-6.1-Sol. Shared provenance is maintained
+by the parent task; this increment creates no Git commits.

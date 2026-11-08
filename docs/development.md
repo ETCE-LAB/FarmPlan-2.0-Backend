@@ -56,6 +56,14 @@ The [Farm service guide](../services/farm-service/README.md) documents `FARM_STO
 
 Farm increment validation: `.venv/bin/python -m pytest -q` passed 88 tests without skips. Tests include service-level loopback gRPC against JSON state; live PostgreSQL and full deployed-stack acceptance remain unverified. Existing dependency/schema warnings remain.
 
+### Independent Fields
+
+Apply `services/farm-service/migrations/002_create_fields.sql` before starting the PostgreSQL-backed service. It adds an indexed Field table with Farm FK deletion cascade and does not transform embedded legacy Fields. JSON development mode includes an independent synthetic Field. Farm summaries count only independent Fields, not retained embedded records.
+
+Shapely and pyproj are declared service dependencies for topology validation and WGS84 geodesic measurements; the gateway development requirements include the Farm dependencies for in-process tests. Geometry uses GeoJSON longitude/latitude and metres/square metres, with bounded input and no silent repair. See the [service guide](../services/farm-service/README.md) for import formats and explicit global/polar limitations.
+
+`.venv/bin/python -m pytest -q` passed all 128 tests without skips. Coverage includes Field ownership, geometry failures, bulk/PATCH rollback, loopback gRPC, and SQL transaction-double orchestration. Live PostgreSQL migration/FK/locking behavior, deployed-stack acceptance, and Bruno execution remain unverified; Docker daemon access was denied during the integration probe.
+
 ### Python tests
 
 ```sh
@@ -73,7 +81,7 @@ python3 -m pip --python .venv/bin/python install -r services/identity-service/re
 
 Dependency installation uses PyPI and may access the network. `.venv` and generated Protobuf files are ignored and must not be committed. On a normal environment with `venv` support, prefer creating a complete virtual environment and invoking its own pip. The test run reported deprecation warnings for the unset pytest-asyncio fixture-loop scope and a Starlette/AnyIO alias; these unrelated warnings were not suppressed or fixed.
 
-Farm currently has no dedicated test file; gateway Farm tests do not replace PostgreSQL/gRPC integration tests. This invocation cannot establish domain coverage for the health placeholders or the unimplemented worker.
+Farm/Field now have dedicated tests under `services/farm-service/tests`, including loopback gRPC against JSON storage; these do not replace live PostgreSQL integration tests. This invocation cannot establish domain coverage for the health placeholders or the unimplemented worker.
 
 ## Workflows not yet available
 

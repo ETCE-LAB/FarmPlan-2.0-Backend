@@ -13,6 +13,8 @@ import asyncpg
 import grpc
 from grpc import aio
 from farm.v1 import farm_pb2, farm_pb2_grpc
+from .fields import Fields
+from .geometry import Invalid, polygon, metrics
 
 
 def storage_backend():
@@ -41,7 +43,7 @@ def validate(data, create=False):
         if key in data and (not isinstance(data[key], str) or len(data[key]) > limit or (key not in {"notes", "climateZone", "location"} and not data[key].strip())):
             raise ValueError("Invalid text")
     if data.get("boundary") is not None:
-        raise ValueError("Boundary geometry is not supported in this increment")
+        polygon(data["boundary"], "boundary")
     contact = data.get("contact")
     if contact is not None:
         if not isinstance(contact, dict) or set(contact) != {"ownerName", "email"}:
@@ -62,15 +64,17 @@ def resource(row):
     data = row["data"]
     if isinstance(data, str):
         data = json.loads(data)
-    fields = data.get("fields", [])
+    fields = row.get("independent_fields", [])
     areas = [f.get("areaM2") for f in fields]
     known = all(isinstance(a, (int, float)) and not isinstance(a, bool) and math.isfinite(a) and a >= 0 for a in areas)
     contact = data.get("contact")
     if "contact" not in data and data.get("ownerName") and data.get("contactEmail"):
         contact = {"ownerName": data["ownerName"], "email": data["contactEmail"]}
     return dict(id=str(row["id"]), name=data.get("name", data.get("farmName", "")),
-        location=data.get("location", ""), climateZone=data.get("climateZone", ""), boundary=None,
-        boundaryAreaM2=None, boundaryPerimeterM=None, notes=data.get("notes", ""), contact=contact,
+        location=data.get("location", ""), climateZone=data.get("climateZone", ""), boundary=data.get("boundary"),
+        boundaryAreaM2=metrics(polygon(data["boundary"], "boundary"))[0] if data.get("boundary") else None,
+        boundaryPerimeterM=metrics(polygon(data["boundary"], "boundary"))[1] if data.get("boundary") else None,
+        notes=data.get("notes", ""), contact=contact,
         summary=dict(fieldCount=len(fields), fieldAreaM2=sum(areas) if known else None, activePlanCount=None),
         createdAt=row["created_at"].isoformat(), updatedAt=row["updated_at"].isoformat())
 
@@ -79,15 +83,19 @@ class JsonStore:
     def __init__(self):
         seed = json.loads(Path(__file__).with_name("seed.json").read_text())
         self.rows = {}
+        self.fields = {}
+        self.lock = asyncio.Lock()
         for row in seed:
             row["id"] = uuid.UUID(row["id"])
             row["owner_id"] = uuid.UUID(row["owner_id"])
             for key in ("created_at", "updated_at"):
                 row[key] = datetime.fromisoformat(row[key])
+            for item in row.pop("independent_fields", []):
+                self.fields[uuid.UUID(item["id"])] = item
             self.rows[row["id"]] = row
 
 
-class FarmService(farm_pb2_grpc.FarmServiceServicer):
+class FarmService(Fields, farm_pb2_grpc.FarmServiceServicer):
     def __init__(self, pool):
         self.pool = pool
 
@@ -111,10 +119,18 @@ class FarmService(farm_pb2_grpc.FarmServiceServicer):
             if "name" in data:
                 data["farmName"] = data["name"]
             return data
+        except Invalid as error:
+            await self.field_error(context, error)
         except (ValueError, TypeError):
             await abort(context, grpc.StatusCode.INVALID_ARGUMENT, "Invalid Farm data")
 
-    def record(self, row):
+    async def record(self, row):
+        row = dict(row)
+        if isinstance(self.pool, JsonStore):
+            row["independent_fields"] = [f for f in self.pool.fields.values() if f["farmId"] == str(row["id"])]
+        else:
+            rows = await self.pool.fetch("SELECT data FROM fields WHERE farm_id=$1", row["id"])
+            row["independent_fields"] = [json.loads(r["data"]) if isinstance(r["data"], str) else r["data"] for r in rows]
         return farm_pb2.FarmRecord(id=str(row["id"]), data_json=json.dumps(resource(row)))
 
     async def ListFarms(self, request, context):
@@ -126,7 +142,7 @@ class FarmService(farm_pb2_grpc.FarmServiceServicer):
             rows = sorted((deepcopy(r) for r in self.pool.rows.values() if r["owner_id"] == owner), key=lambda r: (r["created_at"], str(r["id"])), reverse=True)
         else:
             rows = await self.pool.fetch("SELECT * FROM farms WHERE owner_id=$1 ORDER BY created_at DESC, id DESC", owner)
-        return farm_pb2.ListFarmsResponse(farms=[self.record(r) for r in rows[(page-1)*size:page*size]], total=len(rows), page=page, page_size=size)
+        return farm_pb2.ListFarmsResponse(farms=[await self.record(r) for r in rows[(page-1)*size:page*size]], total=len(rows), page=page, page_size=size)
 
     async def GetFarm(self, request, context):
         owner, farm = await self.ids(request, context)
@@ -138,7 +154,7 @@ class FarmService(farm_pb2_grpc.FarmServiceServicer):
             row = await self.pool.fetchrow("SELECT * FROM farms WHERE id=$1 AND owner_id=$2", farm, owner)
         if row is None:
             await abort(context, grpc.StatusCode.NOT_FOUND, "Farm not found")
-        return farm_pb2.FarmResponse(farm=self.record(row))
+        return farm_pb2.FarmResponse(farm=await self.record(row))
 
     async def CreateFarm(self, request, context):
         owner, _ = await self.ids(request, context)
@@ -150,7 +166,7 @@ class FarmService(farm_pb2_grpc.FarmServiceServicer):
             self.pool.rows[farm] = row
         else:
             row = await self.pool.fetchrow("INSERT INTO farms(id,owner_id,data) VALUES($1,$2,$3::jsonb) RETURNING *", farm, owner, json.dumps(data))
-        return farm_pb2.FarmResponse(farm=self.record(row))
+        return farm_pb2.FarmResponse(farm=await self.record(row))
 
     async def UpdateFarm(self, request, context):
         owner, farm = await self.ids(request, context)
@@ -158,18 +174,24 @@ class FarmService(farm_pb2_grpc.FarmServiceServicer):
         # Keep legacy aliases synchronized without replacing embedded fields/templates.
         if "farmName" in data:
             data["name"] = data["farmName"]
-        if isinstance(self.pool, JsonStore):
-            row = self.pool.rows.get(farm)
-            if row and row["owner_id"] == owner:
+        async with self.field_transaction() as connection:
+            await self.field_parent(connection, farm, owner, context)
+            if data.get("boundary") is not None:
+                boundary = polygon(data["boundary"], "boundary")
+                if connection is None:
+                    fields = [f for f in self.pool.fields.values() if f["farmId"] == str(farm)]
+                else:
+                    rows = await connection.fetch("SELECT data FROM fields WHERE farm_id=$1", farm)
+                    fields = [json.loads(r["data"]) if isinstance(r["data"], str) else r["data"] for r in rows]
+                if any(not boundary.covers(polygon(f["geometry"])) for f in fields):
+                    await self.field_error(context, Invalid("boundary", "outside_farm_boundary", "Boundary must cover all independent Fields."))
+            if connection is None:
+                row = self.pool.rows[farm]
                 row["data"].update(deepcopy(data))
                 row["updated_at"] = datetime.now(UTC)
             else:
-                row = None
-        else:
-            row = await self.pool.fetchrow("UPDATE farms SET data=data || $3::jsonb, updated_at=now() WHERE id=$1 AND owner_id=$2 RETURNING *", farm, owner, json.dumps(data))
-        if row is None:
-            await abort(context, grpc.StatusCode.NOT_FOUND, "Farm not found")
-        return farm_pb2.FarmResponse(farm=self.record(row))
+                row = await connection.fetchrow("UPDATE farms SET data=data || $3::jsonb, updated_at=now() WHERE id=$1 AND owner_id=$2 RETURNING *", farm, owner, json.dumps(data))
+        return farm_pb2.FarmResponse(farm=await self.record(row))
 
     async def DeleteFarm(self, request, context):
         owner, farm = await self.ids(request, context)
@@ -178,6 +200,7 @@ class FarmService(farm_pb2_grpc.FarmServiceServicer):
             deleted = row is not None and row["owner_id"] == owner
             if deleted:
                 del self.pool.rows[farm]
+                self.pool.fields = {key: value for key, value in self.pool.fields.items() if value["farmId"] != str(farm)}
         else:
             deleted = await self.pool.execute("DELETE FROM farms WHERE id=$1 AND owner_id=$2", farm, owner) != "DELETE 0"
         if not deleted:

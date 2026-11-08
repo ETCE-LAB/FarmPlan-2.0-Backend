@@ -1,6 +1,6 @@
 """HTTP acceptance against the real Farm application and synthetic JSON adapter."""
 import asyncio
-import importlib.util
+
 import json
 from pathlib import Path
 
@@ -11,9 +11,9 @@ from farmplan_gateway import main as gateway
 from identity.v1 import identity_pb2
 
 ROOT = Path(__file__).resolve().parents[3]
-spec = importlib.util.spec_from_file_location("farm_application", ROOT / "services/farm-service/src/farmplan_farm/main.py")
-farm = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(farm)
+import sys
+sys.path.insert(0, str(ROOT / "services/farm-service/src"))
+from farmplan_farm import main as farm
 OWNER = "9a62eedd-7c33-4c4b-b9dc-99b4c7b7e8d4"
 ID = "c56c779b-2ee1-4a15-af56-7a3c1c4fb3c8"
 HEADERS = {"Authorization": "Bearer test"}
@@ -22,13 +22,18 @@ HEADERS = {"Authorization": "Bearer test"}
 class Error(grpc.RpcError):
     def __init__(self, code):
         self.status = code
+        self.message = ""
+    def details(self):
+        return self.message
     def code(self):
         return self.status
 
 
 class Context:
     async def abort(self, code, message):
-        raise Error(code)
+        error = Error(code)
+        error.message = message
+        raise error
 
 
 @pytest.fixture
@@ -52,7 +57,7 @@ def test_lifecycle_and_preservation(setup):
     client, service, _ = setup
     result = client.get("/api/v1/farms", headers=HEADERS).json()
     assert result["total"] == 1 and result["pageSize"] == 20
-    assert result["items"][0]["summary"] == dict(fieldCount=0, fieldAreaM2=0, activePlanCount=None)
+    assert result["items"][0]["summary"] == dict(fieldCount=1, fieldAreaM2=service.pool.fields[next(iter(service.pool.fields))]["areaM2"], activePlanCount=None)
     response = client.patch(f"/api/v1/farms/{ID}", headers=HEADERS, json={"name": "Renamed"})
     assert response.status_code == 200
     assert response.json()["name"] == "Renamed"
@@ -98,10 +103,13 @@ def test_invalid_patch(setup, payload):
 
 
 def test_legacy_put_and_summary(setup):
-    client, _, _ = setup
+    client, service, _ = setup
     response = client.put(f"/api/v1/farms/{ID}", headers=HEADERS, json={"farmName": "Legacy", "fields": [{"id": "legacy", "areaM2": 123}], "template": {"items": ["kept"]}})
     assert response.status_code == 200
-    assert response.json()["summary"]["fieldAreaM2"] == 123
+    stored = next(iter(service.pool.rows.values()))["data"]
+    assert stored["fields"] == [{"id": "legacy", "areaM2": 123}]
+    assert stored["template"] == {"items": ["kept"]}
+    assert response.json()["summary"]["fieldAreaM2"] == next(iter(service.pool.fields.values()))["areaM2"]
     assert client.patch(f"/api/v1/farms/{ID}", headers=HEADERS, json={"notes": "only notes"}).json()["summary"]["fieldCount"] == 1
     assert client.get("/api/v1/farms?page=0", headers=HEADERS).status_code == 422
     assert client.get("/api/v1/farms?pageSize=101", headers=HEADERS).status_code == 422

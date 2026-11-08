@@ -27,10 +27,10 @@ def test_json_application_over_generated_grpc(monkeypatch):
                 assert listed.total == 1
                 created = await client.CreateFarm(farm_pb2.FarmRequest(owner_id=OWNER, data_json=json.dumps({"name": "Synthetic RPC farm", "fields": [{"id": "legacy", "area": 12}], "template": {"items": []}})), timeout=5)
                 resource = json.loads(created.farm.data_json)
-                assert resource["summary"]["fieldAreaM2"] is None
+                assert resource["summary"]["fieldAreaM2"] == 0
                 farm_id = created.farm.id
                 updated = await client.UpdateFarm(farm_pb2.UpdateFarmRequest(owner_id=OWNER, farm_id=farm_id, data_json='{"notes":"updated"}'), timeout=5)
-                assert json.loads(updated.farm.data_json)["summary"]["fieldCount"] == 1
+                assert json.loads(updated.farm.data_json)["summary"]["fieldCount"] == 0
                 for method, request in [
                     (client.GetFarm, farm_pb2.FarmIdRequest(owner_id=OTHER, farm_id=farm_id)),
                     (client.UpdateFarm, farm_pb2.UpdateFarmRequest(owner_id=OTHER, farm_id=farm_id, data_json='{"notes":"denied"}')),

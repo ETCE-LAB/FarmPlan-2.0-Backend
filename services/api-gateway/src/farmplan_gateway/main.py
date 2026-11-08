@@ -142,7 +142,8 @@ def error_response(status_code, details=None, headers=None):
 
 @app.exception_handler(StarletteHTTPException)
 async def http_error_handler(request, exc):
-    return error_response(exc.status_code, headers=exc.headers)
+    details = exc.detail.get("validation_details") if exc.status_code == 422 and isinstance(exc.detail, dict) else None
+    return error_response(exc.status_code, details=details, headers=exc.headers)
 
 
 @app.exception_handler(RequestValidationError)

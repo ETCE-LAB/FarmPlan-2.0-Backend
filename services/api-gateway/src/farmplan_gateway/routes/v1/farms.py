@@ -6,7 +6,8 @@ from uuid import UUID
 
 from fastapi import Depends, HTTPException, Query, Response
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
-from starlette.concurrency import run_in_threadpool
+
+from .fields import Polygon, call_farm
 
 
 class Contact(BaseModel):
@@ -28,7 +29,7 @@ class FarmCreate(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     location: str = Field(default="", max_length=200)
     climateZone: str = Field(default="", max_length=120)
-    boundary: None = None
+    boundary: Polygon | None = None
     notes: str = Field(default="", max_length=5000)
     contact: Contact | None = None
 
@@ -45,7 +46,7 @@ class FarmPatch(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=120)
     location: str | None = Field(default=None, max_length=200)
     climateZone: str | None = Field(default=None, max_length=120)
-    boundary: None = None
+    boundary: Polygon | None = None
     notes: str | None = Field(default=None, max_length=5000)
     contact: Contact | None = None
 
@@ -91,12 +92,7 @@ def register(app, deps):
             raise HTTPException(403)
 
     async def call(method, request):
-        try:
-            return await run_in_threadpool(getattr(deps.farm_client, method), request, timeout=10)
-        except deps.grpc.RpcError as error:
-            if error.code() == deps.grpc.StatusCode.INVALID_ARGUMENT:
-                raise HTTPException(422) from error
-            deps.raise_http_error(error)
+        return await call_farm(deps, method, request)
 
     async def list_farms(page: int = Query(1, ge=1), pageSize: int = Query(20, ge=1, le=100), user: Any = Depends(deps.current_user)):
         authorize(user)
