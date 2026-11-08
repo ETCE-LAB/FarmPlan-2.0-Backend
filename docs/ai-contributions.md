@@ -31,4 +31,13 @@ This record complements, and does not replace, the mandatory commit trailers and
 - **Validation:** `.venv/bin/python -m pytest -q` passed all 82 discovered tests with no skips. `git --no-pager diff --check` passed. Tests use mocked gRPC and an Identity SQL test double; real PostgreSQL migration/rollback/concurrency, live gRPC, browser/proxy, Bruno execution, and legacy parity checks were not run. Dependency/schema warnings remain visible. No branches, commits, pushes, deployments, or paid calls were performed.
 - **Human review:** pending; missing integration validation prevents claiming production or merge readiness.
 
+## 2026-11-08 — Farm wishlist and development JSON seed
+
+- **AI-assisted:** yes.
+- **Provider/model:** OpenAI GPT-6.1-Sol (coordinator and implementation subagent).
+- **Scope:** Farm service implementation, synthetic seed, tests and README; Farm protobuf; Gateway Farm routes/tests; Farm Bruno requests; Compose adapter selection; architecture, roadmap, development and this record.
+- **Assistance:** added typed Farm HTTP resources and ephemeral development mock storage without moving persistence into the gateway. Preserved legacy embedded data and documented unsupported geometry, Planning, and deletion cascades explicitly.
+- **Validation:** `.venv/bin/python -m pytest -q` passed 88 tests without skips, including loopback gRPC using JSON state. Compose configuration and diff whitespace checks passed. PostgreSQL, deployed-stack, Bruno, and full legacy-parity acceptance remain unverified. Existing warnings remain. Branch `feat/farm-wishlist-mock` was created with user permission; no commit or push was made for this increment.
+- **Human review:** pending. The pre-existing wishlist and historical skill deletion remain unrelated user work.
+
 For commits containing this model's assistance, use `AI-Assisted: yes`, `AI-Model: OpenAI GPT-6.1-Sol`, and `Co-authored-by: OpenAI GPT-6.1-Sol <openai-gpt-6.1-sol@contributors.invalid>`. The non-deliverable address identifies the model for provenance; it is not a verified provider account.

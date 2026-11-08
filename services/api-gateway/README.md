@@ -42,8 +42,10 @@ Messages are deliberately generic and never forward upstream details or submitte
 validation values. Validation paths identify the input location; detail codes are
 Pydantic validation types. Stable top-level codes and response schemas are exposed
 through OpenAPI in development/test. Production documentation remains disabled.
-The Farm success payloads and methods are unchanged; their errors use this global
-envelope. Consumers must migrate snake_case auth/user/module response reads and
+Farm responses now use typed direct resources and paginated `items`, with GET,
+PATCH, and DELETE 204. Their errors use this global envelope. See the
+[Farm guide](../farm-service/README.md) for legacy adapters, mock mode, and
+unimplemented geometry/Planning capabilities. Consumers must migrate snake_case auth/user/module response reads and
 legacy `detail` error reads. These are intentional API compatibility changes.
 
 Gateway tests mock gRPC. They do not establish real Identity/database behavior,

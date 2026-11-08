@@ -19,7 +19,7 @@
 
 The [Farm migration](../services/farm-service/migrations/001_create_farms.sql) contains only the farm table and index. [Farm writes](../services/farm-service/src/farmplan_farm/main.py) do not write to an outbox. There is no Catalog outbox, outbox processing, or implemented external analysis, GeoTIFF, object-storage, or CDN adapter. Gateway module enablement is not evidence of these capabilities.
 
-Auth, user, and module responses now use camelCase and explicit response models. Gateway errors use a shared envelope; refresh credentials use an HttpOnly cookie. See [Gateway compatibility and security policy](../services/api-gateway/README.md). Farm success contracts remain unchanged and do not yet meet the wishlist. Optional user settings and cross-service account-deletion cleanup remain unimplemented. These implementations have unit/mock coverage, not verified live PostgreSQL/gRPC integration.
+Auth, user, and module responses now use camelCase and explicit response models. Gateway errors use a shared envelope; refresh credentials use an HttpOnly cookie. See [Gateway compatibility and security policy](../services/api-gateway/README.md). Farm HTTP now exposes typed direct resources, pagination, individual GET, PATCH, and DELETE 204. A development-only JSON seed adapter is available; PostgreSQL remains the default. Polygon boundaries, independent Fields, Planning counts, and cross-service deletion are still unavailable; see the [Farm service limitations](../services/farm-service/README.md). Optional user settings and cross-service account-deletion cleanup remain unimplemented. These implementations have unit/mock coverage, not verified live PostgreSQL/gRPC integration.
 
 ## Target architecture – not yet fully implemented
 

@@ -114,6 +114,8 @@ services:
       context: ..
       dockerfile: infra/docker/farm-service.Dockerfile
     environment:
+      APP_ENV: ${APP_ENV:-development}
+      FARM_STORAGE_BACKEND: ${FARM_STORAGE_BACKEND:-postgres}
       DATABASE_URL: postgresql://${POSTGRES_USER:-farmplan}:${POSTGRES_PASSWORD:-farmplan-dev-only}@postgres:5432/${POSTGRES_DB:-farmplan}
     depends_on:
       farm-migrations:

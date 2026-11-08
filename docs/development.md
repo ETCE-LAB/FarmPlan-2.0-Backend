@@ -50,6 +50,12 @@ Apply `services/identity-service/migrations/002_identity_sessions.sql` before st
 
 On November 8, 2026, `.venv/bin/python -m pytest -q` passed all 82 discovered tests without skips. Gateway tests mock gRPC and Identity tests use a SQL double, so live PostgreSQL migration/rollback/concurrency and gateway-to-service acceptance remain unverified. The run emitted pytest-asyncio, Starlette/AnyIO, and Pydantic alias-schema warnings; registration alias behavior is covered by tests. See the service READMEs for cookie/proxy policy and compatibility changes. Bruno requests were updated but not executed.
 
+### Farm development mock mode
+
+The [Farm service guide](../services/farm-service/README.md) documents `FARM_STORAGE_BACKEND=json` with `APP_ENV=development`. It loads synthetic seed data into memory, resets on restart, and does not bypass owner checks. Identity and existing Compose dependencies still require PostgreSQL. PostgreSQL remains the default Farm backend; no new central database service or background worker is introduced.
+
+Farm increment validation: `.venv/bin/python -m pytest -q` passed 88 tests without skips. Tests include service-level loopback gRPC against JSON state; live PostgreSQL and full deployed-stack acceptance remain unverified. Existing dependency/schema warnings remain.
+
 ### Python tests
 
 ```sh
