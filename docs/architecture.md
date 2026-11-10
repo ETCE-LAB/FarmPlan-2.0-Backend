@@ -7,8 +7,8 @@
 | Component | Actually present |
 | --- | --- |
 | `services/api-gateway` | FastAPI, versioned HTTP routes, bearer authentication through Identity, module/guest access control, and a Farm gRPC client. Only Identity and Farm are connected as domain clients. |
-| `services/identity-service` | gRPC for registration, login, guest identities, and profile/token validation; PostgreSQL usage and a user migration. |
-| `services/farm-service` | Owner-scoped farm CRUD over gRPC; a `farms` table with JSONB data. Fields currently reside within farm data; no independent Field persistence or membership implementation has been established. |
+| `services/identity-service` | gRPC for registration, login, guest identities, profile/token validation, refresh rotation/logout, profile updates, password changes, and self-deletion; PostgreSQL users and hashed refresh sessions. See [Identity lifecycle](../services/identity-service/README.md). |
+| `services/farm-service` | Owner-scoped farm CRUD over gRPC; a `farms` table with JSONB data. Independent Field CRUD and atomic bulk import with WGS84 topology/measurement validation, a service-owned `fields` migration, and an ephemeral development JSON adapter. Legacy embedded fields remain unmigrated; membership beyond sole ownership is not implemented. |
 | `services/catalog-service`, `planning-service`, `analysis-service`, `media-service` | Directory structure; Compose starts the shared gRPC health process for each, not a domain implementation. |
 | `services/background-worker` | Prepared directories, no worker code or Compose service. |
 | `packages/api-contracts` | Versioned Protobuf contracts for Identity and Farm. |
@@ -17,7 +17,9 @@
 
 [Compose](../infra/compose.yaml) runs Identity and Farm migrations as one-off tasks. By default, the gateway publishes port `8000`, PostgreSQL `5433`, and Redis `6380`, all bound to loopback. Internal gRPC services use port `50051` without host publication. Connections currently use unencrypted internal gRPC; production hardening has not been demonstrated.
 
-The [Farm migration](../services/farm-service/migrations/001_create_farms.sql) contains only the farm table and index. [Farm writes](../services/farm-service/src/farmplan_farm/main.py) do not write to an outbox. There is no Catalog outbox, outbox processing, or implemented external analysis, GeoTIFF, object-storage, or CDN adapter. Gateway module enablement is not evidence of these capabilities.
+The [Farm migration](../services/farm-service/migrations/001_create_farms.sql) creates the farm table and index; migration `002_create_fields.sql` adds independent Fields with a Farm deletion cascade. [Farm writes](../services/farm-service/src/farmplan_farm/main.py) do not write to an outbox. There is no Catalog outbox, outbox processing, or implemented external analysis, GeoTIFF, object-storage, or CDN adapter. Gateway module enablement is not evidence of these capabilities.
+
+Auth, user, and module responses now use camelCase and explicit response models. Gateway errors use a shared envelope; refresh credentials use an HttpOnly cookie. See [Gateway compatibility and security policy](../services/api-gateway/README.md). Farm HTTP now exposes typed direct resources, pagination, individual GET, PATCH, and DELETE 204. A development-only JSON seed adapter is available; PostgreSQL remains the default. Polygon boundaries and independent Fields are implemented, including containment checks, geodesic metrics, and Field deletion cascades. Planning counts and cross-service deletion are still unavailable; see the [Farm service limitations](../services/farm-service/README.md). Optional user settings and cross-service account-deletion cleanup remain unimplemented. Coverage includes unit/mock tests and Farm/Field loopback gRPC; live PostgreSQL migrations, concurrency, and deployed-stack acceptance remain unverified. Farm summaries now count only independent Fields; legacy embedded records are retained but excluded until an explicit migration.
 
 ## Target architecture – not yet fully implemented
 

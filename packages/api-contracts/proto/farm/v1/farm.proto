@@ -4,9 +4,12 @@ package farm.v1;
 
 service FarmService {
   rpc ListFarms (ListFarmsRequest) returns (ListFarmsResponse);
+  rpc GetFarm (FarmIdRequest) returns (FarmResponse);
   rpc CreateFarm (FarmRequest) returns (FarmResponse);
   rpc UpdateFarm (UpdateFarmRequest) returns (FarmResponse);
   rpc DeleteFarm (FarmIdRequest) returns (DeleteFarmResponse);
+  // Owner is supplied only by the trusted gateway after Identity verification.
+  rpc Fields (FieldRequest) returns (FieldResult);
 }
 
 message FarmIdRequest {
@@ -25,8 +28,19 @@ message UpdateFarmRequest {
   string data_json = 3;
 }
 
-message ListFarmsRequest { string owner_id = 1; }
+message ListFarmsRequest { string owner_id = 1; uint32 page = 2; uint32 page_size = 3; }
 message FarmRecord { string id = 1; string data_json = 2; }
 message FarmResponse { FarmRecord farm = 1; }
-message ListFarmsResponse { repeated FarmRecord farms = 1; }
+message ListFarmsResponse { repeated FarmRecord farms = 1; uint64 total = 2; uint32 page = 3; uint32 page_size = 4; }
 message DeleteFarmResponse { bool deleted = 1; }
+
+message FieldRequest {
+  string owner_id = 1;
+  string farm_id = 2;
+  string field_id = 3;
+  string operation = 4; // list, create, bulk, get, patch, delete
+  string data_json = 5;
+  uint32 page = 6;
+  uint32 page_size = 7;
+}
+message FieldResult { string data_json = 1; }

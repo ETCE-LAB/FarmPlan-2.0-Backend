@@ -1,0 +1,22 @@
+meta {
+  name: Patch field
+  type: http
+  seq: 5
+}
+patch {
+  url: {{gateway_url}}/api/v1/fields/{{field_id}}
+  body: json
+  auth: bearer
+}
+auth:bearer {
+  token: {{user_token}}
+}
+body:json {
+  {"soilType":"Synthetic loam","soilPh":6.8,"cropType":"Synthetic crop","irrigation":"none","autoSpacing":false}
+}
+tests {
+  test("partial field update", function() {
+    expect(res.getStatus()).to.equal(200);
+    expect(res.getBody().soilPh).to.equal(6.8);
+  });
+}

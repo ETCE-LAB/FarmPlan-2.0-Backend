@@ -44,6 +44,26 @@ docker compose --env-file .env -f infra/compose.yaml up --build -d
 
 This variant requires an existing `.env`. Do not commit secrets; Compose defaults are for local development only. Bind addresses, host ports, `APP_ENV`, `JWT_SECRET`, `ENABLED_MODULES`, and `GUEST_ENABLED_MODULES` are configurable. Enabled modules are not necessarily implemented modules.
 
+### Identity wishlist migration and validation
+
+Apply `services/identity-service/migrations/002_identity_sessions.sql` before starting the updated Identity service; use the existing migration task, which processes SQL files in filename order. It adds user credential versions/timestamps and hashed refresh sessions. No live migration was executed during this increment.
+
+On November 8, 2026, `.venv/bin/python -m pytest -q` passed all 82 discovered tests without skips. Gateway tests mock gRPC and Identity tests use a SQL double, so live PostgreSQL migration/rollback/concurrency and gateway-to-service acceptance remain unverified. The run emitted pytest-asyncio, Starlette/AnyIO, and Pydantic alias-schema warnings; registration alias behavior is covered by tests. See the service READMEs for cookie/proxy policy and compatibility changes. Bruno requests were updated but not executed.
+
+### Farm development mock mode
+
+The [Farm service guide](../services/farm-service/README.md) documents `FARM_STORAGE_BACKEND=json` with `APP_ENV=development`. It loads synthetic seed data into memory, resets on restart, and does not bypass owner checks. Identity and existing Compose dependencies still require PostgreSQL. PostgreSQL remains the default Farm backend; no new central database service or background worker is introduced.
+
+Farm increment validation: `.venv/bin/python -m pytest -q` passed 88 tests without skips. Tests include service-level loopback gRPC against JSON state; live PostgreSQL and full deployed-stack acceptance remain unverified. Existing dependency/schema warnings remain.
+
+### Independent Fields
+
+Apply `services/farm-service/migrations/002_create_fields.sql` before starting the PostgreSQL-backed service. It adds an indexed Field table with Farm FK deletion cascade and does not transform embedded legacy Fields. JSON development mode includes an independent synthetic Field. Farm summaries count only independent Fields, not retained embedded records.
+
+Shapely and pyproj are declared service dependencies for topology validation and WGS84 geodesic measurements; the gateway development requirements include the Farm dependencies for in-process tests. Geometry uses GeoJSON longitude/latitude and metres/square metres, with bounded input and no silent repair. See the [service guide](../services/farm-service/README.md) for import formats and explicit global/polar limitations.
+
+`.venv/bin/python -m pytest -q` passed all 128 tests without skips. Coverage includes Field ownership, geometry failures, bulk/PATCH rollback, loopback gRPC, and SQL transaction-double orchestration. Live PostgreSQL migration/FK/locking behavior, deployed-stack acceptance, and Bruno execution remain unverified; Docker daemon access was denied during the integration probe.
+
 ### Python tests
 
 ```sh
@@ -61,7 +81,7 @@ python3 -m pip --python .venv/bin/python install -r services/identity-service/re
 
 Dependency installation uses PyPI and may access the network. `.venv` and generated Protobuf files are ignored and must not be committed. On a normal environment with `venv` support, prefer creating a complete virtual environment and invoking its own pip. The test run reported deprecation warnings for the unset pytest-asyncio fixture-loop scope and a Starlette/AnyIO alias; these unrelated warnings were not suppressed or fixed.
 
-Farm currently has no dedicated test file; gateway Farm tests do not replace PostgreSQL/gRPC integration tests. This invocation cannot establish domain coverage for the health placeholders or the unimplemented worker.
+Farm/Field now have dedicated tests under `services/farm-service/tests`, including loopback gRPC against JSON storage; these do not replace live PostgreSQL integration tests. This invocation cannot establish domain coverage for the health placeholders or the unimplemented worker.
 
 ## Workflows not yet available
 

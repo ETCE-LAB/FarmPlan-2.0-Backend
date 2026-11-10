@@ -12,7 +12,7 @@ class FakeIdentityClient:
             access_token="user-token",
             token_type="Bearer",
             user_id="registered-user",
-            account_type="user",
+            account_type="user", user=identity_pb2.UserProfile(account_type="user"),
         )
 
     def Login(self, request, timeout=None):
@@ -21,7 +21,7 @@ class FakeIdentityClient:
             access_token="user-token",
             token_type="Bearer",
             user_id="registered-user",
-            account_type="user",
+            account_type="user", user=identity_pb2.UserProfile(account_type="user"),
         )
 
     def CreateGuestSession(self, request, timeout=None):
@@ -29,7 +29,7 @@ class FakeIdentityClient:
             access_token="guest-token",
             token_type="Bearer",
             user_id="anonymous-session",
-            account_type="guest",
+            account_type="guest", user=identity_pb2.UserProfile(account_type="guest"),
         )
 
     def GetUser(self, request, timeout=None):
@@ -65,7 +65,7 @@ def test_register_forwards_credentials_to_identity_service(monkeypatch):
     )
 
     assert response.status_code == 201
-    assert response.json()["account_type"] == "user"
+    assert response.json()["user"]["accountType"] == "user"
     assert fake_identity.register_request.email == "grower@example.test"
 
 
@@ -79,7 +79,7 @@ def test_login_forwards_credentials_to_identity_service(monkeypatch):
     )
 
     assert response.status_code == 200
-    assert response.json()["account_type"] == "user"
+    assert response.json()["user"]["accountType"] == "user"
     assert fake_identity.login_request.email == "grower@example.test"
 
 
@@ -102,7 +102,7 @@ def test_invalid_login_is_translated_to_http_401(monkeypatch):
     )
 
     assert response.status_code == 401
-    assert response.json()["detail"] == "Invalid email or password."
+    assert response.json()["error"]["code"] == "unauthenticated"
 
 
 def test_register_rejects_short_password_before_grpc_call():
@@ -119,17 +119,18 @@ def test_guest_session_can_read_own_profile(monkeypatch):
 
     session_response = client.post("/api/v1/auth/guest")
     assert session_response.status_code == 200
-    assert session_response.json()["account_type"] == "guest"
+    assert session_response.json()["user"]["accountType"] == "guest"
 
     profile_response = client.get(
         "/api/v1/users/me", headers={"Authorization": "Bearer guest-token"}
     )
     assert profile_response.status_code == 200
     assert profile_response.json() == {
-        "user_id": "anonymous-session",
+        "id": "anonymous-session",
         "email": "",
-        "display_name": "Guest",
-        "account_type": "guest",
+        "displayName": "Guest",
+        "accountType": "guest",
+        "createdAt": "", "updatedAt": "",
     }
 
 
@@ -159,7 +160,7 @@ def test_registered_user_can_access_enabled_module(monkeypatch):
     )
 
     assert response.status_code == 200
-    assert response.json()["account_type"] == "user"
+    assert response.json()["accountType"] == "user"
 
 
 def test_module_list_reports_independent_availability_and_guest_access(monkeypatch):

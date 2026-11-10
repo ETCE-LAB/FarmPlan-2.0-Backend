@@ -17,16 +17,16 @@ post {
 body:json {
   email: "{{registered_email}}"
   password: "{{registered_password}}"
-  display_name: "Bruno Test User"
+  displayName: "Bruno Test User"
 }
 
 tests {
   test("registration creates a user account", function() {
     expect(res.getStatus()).to.equal(201);
     const body = res.getBody();
-    expect(body.account_type).to.equal("user");
-    expect(body.token_type).to.equal("Bearer");
-    expect(body.access_token).to.be.a("string");
-    bru.setEnvVar("user_token", body.access_token);
+    expect(body.user.accountType).to.equal("user");
+    expect(body.tokenType).to.equal("Bearer");
+    expect(body.accessToken).to.be.a("string");
+    bru.setEnvVar("user_token", body.accessToken);
   });
 }

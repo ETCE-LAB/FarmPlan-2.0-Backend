@@ -1,0 +1,18 @@
+meta {
+  name: Get owner farm
+  type: http
+  seq: 3
+}
+get {
+  url: {{gateway_url}}/api/v1/farms/{{farm_id}}
+  auth: bearer
+}
+auth:bearer {
+  token: {{user_token}}
+}
+tests {
+  test("direct farm summary", function() {
+    expect(res.getStatus()).to.equal(200);
+    expect(res.getBody().summary.activePlanCount).to.equal(null);
+  });
+}

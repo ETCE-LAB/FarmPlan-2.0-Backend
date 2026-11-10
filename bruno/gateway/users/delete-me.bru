@@ -1,0 +1,20 @@
+meta {
+  name: Delete own disposable account
+  type: http
+  seq: 14
+}
+
+delete {
+  url: {{gateway_url}}/api/v1/users/me
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{user_token}}
+}
+
+tests {
+  test("request succeeds", function() {
+    expect(res.getStatus()).to.equal(204);
+  });
+}

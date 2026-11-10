@@ -102,8 +102,11 @@ services:
       - ON_ERROR_STOP=1
       - -f
       - /migrations/001_create_farms.sql
+      - -f
+      - /migrations/002_create_fields.sql
     volumes:
       - ../services/farm-service/migrations/001_create_farms.sql:/migrations/001_create_farms.sql:ro
+      - ../services/farm-service/migrations/002_create_fields.sql:/migrations/002_create_fields.sql:ro
     depends_on:
       postgres:
         condition: service_healthy
@@ -114,6 +117,8 @@ services:
       context: ..
       dockerfile: infra/docker/farm-service.Dockerfile
     environment:
+      APP_ENV: ${APP_ENV:-development}
+      FARM_STORAGE_BACKEND: ${FARM_STORAGE_BACKEND:-postgres}
       DATABASE_URL: postgresql://${POSTGRES_USER:-farmplan}:${POSTGRES_PASSWORD:-farmplan-dev-only}@postgres:5432/${POSTGRES_DB:-farmplan}
     depends_on:
       farm-migrations:
