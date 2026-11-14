@@ -1,5 +1,6 @@
 """Public FastAPI edge. Internal identity calls use the versioned gRPC contract."""
 
+import asyncio
 import json
 import math
 import os
@@ -9,6 +10,7 @@ from datetime import datetime
 from typing import Annotated, NoReturn
 
 import grpc
+from grpc_health.v1 import health_pb2, health_pb2_grpc
 from fastapi import Depends, FastAPI, HTTPException, Request, Response, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
@@ -400,9 +402,42 @@ def raise_farm_http_error(error: grpc.RpcError) -> NoReturn:
     ) from error
 
 
-@app.get("/healthz", tags=["health"])
-async def health() -> dict[str, str]:
-    return {"status": "ok", "service": "api-gateway"}
+HEALTH_CHECK_TIMEOUT = 1.0
+HEALTH_SERVICE_ADDRESSES = {
+    "identity": IDENTITY_SERVICE_ADDRESS,
+    "farm": FARM_SERVICE_ADDRESS,
+    **{
+        name: os.environ.get(f"{name.upper()}_SERVICE_ADDRESS", f"{name}-service:50051")
+        for name in ("catalog", "planning", "analysis", "media")
+    },
+}
+
+
+async def check_service_health(address: str) -> str:
+    try:
+        # Bound channel setup, DNS and RPC work; channels belong to this request's loop.
+        async with asyncio.timeout(HEALTH_CHECK_TIMEOUT):
+            async with grpc.aio.insecure_channel(address) as health_channel:
+                result = await health_pb2_grpc.HealthStub(health_channel).Check(
+                    health_pb2.HealthCheckRequest(service=""), timeout=HEALTH_CHECK_TIMEOUT
+                )
+                return "ok" if result.status == health_pb2.HealthCheckResponse.SERVING else "not_serving"
+    except Exception:
+        return "unavailable"
+
+
+@app.get("/health", tags=["health"], responses={503: {"description": "A service is not serving"}})
+async def health() -> JSONResponse:
+    """Process health only; not database readiness or domain capability verification."""
+    results = await asyncio.gather(*(
+        check_service_health(address) for address in HEALTH_SERVICE_ADDRESSES.values()
+    ))
+    services = {"gateway": "ok", **dict(zip(HEALTH_SERVICE_ADDRESSES, results))}
+    healthy = all(value == "ok" for value in services.values())
+    return JSONResponse(
+        status_code=200 if healthy else 503,
+        content={"status": "ok" if healthy else "error", "service": "api-gateway", "services": services},
+    )
 
 
 from farmplan_gateway.routes.v1 import register_v1_routes

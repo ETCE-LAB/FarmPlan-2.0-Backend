@@ -50,4 +50,25 @@ This record complements, and does not replace, the mandatory commit trailers and
 - **Git operations:** with user permission, committed the preceding Farm increment as `8c18d58` using author and committer date `2026-11-08T13:30:00+01:00`, then created `feat/field-wishlist`. The user subsequently requested a Field commit using the actual current time and publication of new local feature branches. The full 128-test suite, Compose validation, and whitespace checks passed again before preparation; publication does not establish integration or merge readiness. The wishlist and pre-existing historical skill deletion remain outside the commit.
 - **Human review:** pending; incomplete integration checks block claiming production/merge readiness.
 
+## 2026-11-14 — Authenticated overview and Docker migrations
+
+- **AI-assisted:** yes.
+- **Provider/model:** OpenAI GPT-6.1-Sol (coordinator and both implementation subagents).
+- **Scope:** Farm protobuf and aggregate implementation; Gateway overview route/registration; overview service and gateway tests; Bruno overview request; Compose migration tasks; `scripts/run_sql_migrations.sh` and `scripts/test_sql_migrations.py`; architecture, development, roadmap, and this record.
+- **Assistance:** implemented JWT-authenticated, owner-scoped Farm/independent Field counts and ordered discovery of all current repeatable service SQL migrations, including Identity sessions. Existing local environment changes, wishlist, and historical skill deletion are excluded from this attribution.
+- **Validation:** `.venv/bin/python -m pytest -q` passed 151 tests without skips in the implementation run; targeted overview tests passed 17 and migration tests passed 6. Compose configuration, shell syntax, and diff whitespace checks passed. SQL tests use doubles; live PostgreSQL upgrades, rollback, deployed-stack acceptance, and Bruno execution remain unverified. Docker daemon access was denied. Existing dependency warnings remain.
+- **Follow-up validation:** `.venv/bin/python -m pytest -q` passed all 153 tests without skips; Compose configuration and diff whitespace checks passed. Live stack validation remains unverified.
+- **Follow-up scope:** renamed gateway liveness to `/health` in the route, Compose probe, Bruno request, tests, and documentation; made overview a global OpenAPI group independent of module flags, moved its Bruno request to `bruno/gateway/overview.bru`, and added regression coverage. Domain counting remains owned by Farm; no additional statistics are claimed implemented.
+- **Git operations:** created `feat/authenticated-overview` at the user's request; no commit or push.
+- **Human review:** pending; missing integration validation blocks claiming merge or production readiness.
+
+## 2026-11-14 — Aggregated microservice health
+
+- **AI-assisted:** yes.
+- **Provider/model:** OpenAI GPT-6.1-Sol (coordinator and implementation subagent).
+- **Scope:** Gateway health implementation/tests, Identity and Farm health registration, pinned health-protocol dependencies in their three requirements files, Compose health configuration, Bruno health request, architecture/development/roadmap, and this record.
+- **Assistance:** added concurrent bounded standard gRPC health checks for all six existing microservices, sanitized per-service statuses, and aggregate HTTP `200`/`503` behavior. This does not claim database readiness or implemented domain behavior in placeholders.
+- **Validation:** installed the declared `grpcio-health-checking==1.71.0` dependency into the ignored local environment. `.venv/bin/python -m pytest -q` passed 175 tests without skips, including real loopback health-protocol checks; existing dependency warnings remain. Compose and whitespace checks passed during implementation. Live Docker deployment, database readiness, and Bruno execution remain unverified.
+- **Human review:** pending; no commit, push, or deployment was performed.
+
 For commits containing this model's assistance, use `AI-Assisted: yes`, `AI-Model: OpenAI GPT-6.1-Sol`, and `Co-authored-by: OpenAI GPT-6.1-Sol <openai-gpt-6.1-sol@contributors.invalid>`. The non-deliverable address identifies the model for provenance; it is not a verified provider account.
