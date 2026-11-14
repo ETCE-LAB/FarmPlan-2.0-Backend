@@ -35,15 +35,16 @@ services:
 
   identity-migrations:
     image: postgis/postgis:16-3.4
-    command:
-      - psql
-      - postgresql://${POSTGRES_USER:-farmplan}:${POSTGRES_PASSWORD:-farmplan-dev-only}@postgres:5432/${POSTGRES_DB:-farmplan}
-      - -v
-      - ON_ERROR_STOP=1
-      - -f
-      - /migrations/001_create_users.sql
+    environment:
+      PGHOST: postgres
+      PGDATABASE: ${POSTGRES_DB:-farmplan}
+      PGUSER: ${POSTGRES_USER:-farmplan}
+      PGPASSWORD: ${POSTGRES_PASSWORD:-farmplan-dev-only}
+      PGCONNECT_TIMEOUT: "10"
+    command: ["sh", "/scripts/run_sql_migrations.sh"]
     volumes:
-      - ../services/identity-service/migrations/001_create_users.sql:/migrations/001_create_users.sql:ro
+      - ../scripts/run_sql_migrations.sh:/scripts/run_sql_migrations.sh:ro
+      - ../services/identity-service/migrations:/migrations:ro
     depends_on:
       postgres:
         condition: service_healthy
@@ -76,6 +77,10 @@ services:
       APP_ENV: ${APP_ENV:-development}
       IDENTITY_SERVICE_ADDRESS: identity-service:50051
       FARM_SERVICE_ADDRESS: farm-service:50051
+      CATALOG_SERVICE_ADDRESS: ${CATALOG_SERVICE_ADDRESS:-catalog-service:50051}
+      PLANNING_SERVICE_ADDRESS: ${PLANNING_SERVICE_ADDRESS:-planning-service:50051}
+      ANALYSIS_SERVICE_ADDRESS: ${ANALYSIS_SERVICE_ADDRESS:-analysis-service:50051}
+      MEDIA_SERVICE_ADDRESS: ${MEDIA_SERVICE_ADDRESS:-media-service:50051}
       ENABLED_MODULES: ${ENABLED_MODULES:-farms,catalog,planning,analysis,media}
       GUEST_ENABLED_MODULES: ${GUEST_ENABLED_MODULES:-catalog,planning}
     ports:
@@ -86,27 +91,25 @@ services:
       farm-service:
         condition: service_started
     healthcheck:
-      test: ["CMD", "python", "-c", "from urllib.request import urlopen; urlopen('http://127.0.0.1:8000/healthz', timeout=2)"]
+      test: ["CMD", "python", "-c", "from urllib.request import urlopen; urlopen('http://127.0.0.1:8000/health', timeout=5)"]
       interval: 10s
-      timeout: 3s
+      timeout: 6s
       retries: 5
       start_period: 5s
     restart: unless-stopped
 
   farm-migrations:
     image: postgis/postgis:16-3.4
-    command:
-      - psql
-      - postgresql://${POSTGRES_USER:-farmplan}:${POSTGRES_PASSWORD:-farmplan-dev-only}@postgres:5432/${POSTGRES_DB:-farmplan}
-      - -v
-      - ON_ERROR_STOP=1
-      - -f
-      - /migrations/001_create_farms.sql
-      - -f
-      - /migrations/002_create_fields.sql
+    environment:
+      PGHOST: postgres
+      PGDATABASE: ${POSTGRES_DB:-farmplan}
+      PGUSER: ${POSTGRES_USER:-farmplan}
+      PGPASSWORD: ${POSTGRES_PASSWORD:-farmplan-dev-only}
+      PGCONNECT_TIMEOUT: "10"
+    command: ["sh", "/scripts/run_sql_migrations.sh"]
     volumes:
-      - ../services/farm-service/migrations/001_create_farms.sql:/migrations/001_create_farms.sql:ro
-      - ../services/farm-service/migrations/002_create_fields.sql:/migrations/002_create_fields.sql:ro
+      - ../scripts/run_sql_migrations.sh:/scripts/run_sql_migrations.sh:ro
+      - ../services/farm-service/migrations:/migrations:ro
     depends_on:
       postgres:
         condition: service_healthy

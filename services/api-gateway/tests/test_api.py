@@ -45,10 +45,22 @@ class FakeIdentityClient:
         )
 
 
-def test_health_endpoint():
-    response = TestClient(gateway.app).get("/healthz")
+def test_health_endpoint_is_public(monkeypatch):
+    async def healthy(address):
+        return "ok"
+
+    monkeypatch.setattr(gateway, "check_service_health", healthy)
+    response = TestClient(gateway.app).get("/health")
     assert response.status_code == 200
-    assert response.json() == {"status": "ok", "service": "api-gateway"}
+    assert response.json() == {
+        "status": "ok", "service": "api-gateway",
+        "services": {"gateway": "ok", **{name: "ok" for name in gateway.HEALTH_SERVICE_ADDRESSES}},
+    }
+
+
+def test_old_healthz_endpoint_returns_404():
+    response = TestClient(gateway.app).get("/healthz")
+    assert response.status_code == 404
 
 
 def test_register_forwards_credentials_to_identity_service(monkeypatch):

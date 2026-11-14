@@ -3,6 +3,8 @@ syntax = "proto3";
 package farm.v1;
 
 service FarmService {
+  // Owner comes only from the trusted gateway after Identity verification.
+  rpc GetOverview (GetOverviewRequest) returns (GetOverviewResponse);
   rpc ListFarms (ListFarmsRequest) returns (ListFarmsResponse);
   rpc GetFarm (FarmIdRequest) returns (FarmResponse);
   rpc CreateFarm (FarmRequest) returns (FarmResponse);
@@ -11,6 +13,9 @@ service FarmService {
   // Owner is supplied only by the trusted gateway after Identity verification.
   rpc Fields (FieldRequest) returns (FieldResult);
 }
+
+message GetOverviewRequest { string owner_id = 1; }
+message GetOverviewResponse { uint64 farm_count = 1; uint64 field_count = 2; }
 
 message FarmIdRequest {
   string owner_id = 1;

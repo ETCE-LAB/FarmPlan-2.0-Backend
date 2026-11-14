@@ -27,13 +27,13 @@ The following commands have been checked against existing files but **have not b
 docker compose -f infra/compose.yaml up --build -d
 docker compose -f infra/compose.yaml ps
 docker compose -f infra/compose.yaml logs api-gateway identity-service farm-service
-curl --fail http://localhost:8000/healthz
+curl --fail http://localhost:8000/health
 docker compose -f infra/compose.yaml down
 ```
 
 `up --build` may download images and packages and create containers/volumes. The two migration tasks run before their services and modify the local database. `down` stops the stack and preserves volumes. **`down -v` would delete PostgreSQL and Redis data** and is not a normal shutdown step.
 
-Default endpoints from [Compose](../infra/compose.yaml): gateway `http://localhost:8000`, interactive API documentation `http://localhost:8000/docs` in development mode, PostgreSQL `127.0.0.1:5433`, and Redis `127.0.0.1:6380`. Internal gRPC addresses use Compose service names and port `50051`. `/healthz` confirms only the gateway response, not domain functionality across all modules. Interactive API documentation is disabled under `APP_ENV=production`.
+Default endpoints from [Compose](../infra/compose.yaml): gateway `http://localhost:8000`, interactive API documentation `http://localhost:8000/docs` in development mode, PostgreSQL `127.0.0.1:5433`, and Redis `127.0.0.1:6380`. Internal gRPC addresses use Compose service names and port `50051`. `/health` checks the gateway and all six configured microservices (Identity, Farm, Catalog, Planning, Analysis, Media). Checks run concurrently using the standard gRPC health protocol, with a one-second deadline per service. It returns HTTP `200` with `status: ok` only when all services report serving; otherwise HTTP `503` with `status: error`. The `services` map reports `ok`, `unavailable`, or `not_serving` for each service. It is public and exposes neither internal addresses nor exception details. These are process-health checks, not database readiness or proof of domain functionality; Catalog, Planning, Analysis, and Media remain placeholders. Interactive API documentation is disabled under `APP_ENV=production`.
 
 A configuration template is available in [`.env.example`](../.env.example); the variables and defaults in Compose are authoritative. To explicitly load a previously prepared local `.env`:
 
@@ -43,6 +43,28 @@ docker compose --env-file .env -f infra/compose.yaml up --build -d
 ```
 
 This variant requires an existing `.env`. Do not commit secrets; Compose defaults are for local development only. Bind addresses, host ports, `APP_ENV`, `JWT_SECRET`, `ENABLED_MODULES`, and `GUEST_ENABLED_MODULES` are configurable. Enabled modules are not necessarily implemented modules.
+
+### Service health configuration
+
+Gateway health checks use `IDENTITY_SERVICE_ADDRESS`, `FARM_SERVICE_ADDRESS`, `CATALOG_SERVICE_ADDRESS`, `PLANNING_SERVICE_ADDRESS`, `ANALYSIS_SERVICE_ADDRESS`, and `MEDIA_SERVICE_ADDRESS`, defaulting to their Compose service names on port `50051`. All six services are checked regardless of module flags. Rebuild the Gateway, Identity, and Farm images for the added pinned `grpcio-health-checking` dependency and health registration. The gateway Compose probe allows five seconds for the aggregated response; a failed downstream service also marks the gateway container unhealthy. PostgreSQL, Redis, migration tasks, and the unimplemented background worker are not included as microservices.
+
+### Docker migration discovery
+
+Both Compose migration tasks mount their complete service-owned migration directories and run `scripts/run_sql_migrations.sh`. All `*.sql` files run in filename order, including Identity `001_create_users.sql` and `002_identity_sessions.sql`, and Farm `001_create_farms.sql` and `002_create_fields.sql`. Services wait for their migration task to complete successfully. The runner stops on errors and wraps each service's migration set in one transaction.
+
+Migrations run against existing PostgreSQL volumes too; do not delete volumes to apply these changes. To explicitly rerun migrations on an existing stack before restarting the updated services:
+
+```sh
+docker compose -f infra/compose.yaml run --rm identity-migrations
+docker compose -f infra/compose.yaml run --rm farm-migrations
+docker compose -f infra/compose.yaml up --build -d
+```
+
+There is no migration ledger: current migrations are repeatable, and future SQL files must remain repeatable and transaction-compatible until a version-tracking runner is introduced. SQL-double tests and Compose configuration validation do not establish live database upgrade or rollback behavior.
+
+### Authenticated overview
+
+`GET /api/v1/overview` is a global dashboard endpoint requiring a registered user's bearer access JWT, independent of module enablement. It has its own `overview` OpenAPI group and can be extended with statistics from other domains. It returns `{"farmCount": 2, "fieldCount": 5}` for that user's owned farms and their independent Fields. Empty accounts return zero counts; guests receive `403` and invalid or missing credentials `401`. Disabling the Farm module does not disable this global endpoint. Client-supplied owner IDs cannot change the scope. Embedded legacy Fields are retained but not counted, matching Farm summaries. The dedicated Farm `GetOverview` gRPC operation performs a single owner-scoped aggregate query, not paginated resource listing. This is not the legacy Catalog overview (LEG-05), which remains outstanding.
 
 ### Identity wishlist migration and validation
 

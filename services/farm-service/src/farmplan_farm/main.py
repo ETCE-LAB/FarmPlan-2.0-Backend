@@ -12,6 +12,7 @@ import uuid
 import asyncpg
 import grpc
 from grpc import aio
+from grpc_health.v1 import health, health_pb2, health_pb2_grpc
 from farm.v1 import farm_pb2, farm_pb2_grpc
 from .fields import Fields
 from .geometry import Invalid, polygon, metrics
@@ -133,6 +134,25 @@ class FarmService(Fields, farm_pb2_grpc.FarmServiceServicer):
             row["independent_fields"] = [json.loads(r["data"]) if isinstance(r["data"], str) else r["data"] for r in rows]
         return farm_pb2.FarmRecord(id=str(row["id"]), data_json=json.dumps(resource(row)))
 
+    async def GetOverview(self, request, context):
+        owner, _ = await self.ids(request, context)
+        if isinstance(self.pool, JsonStore):
+            async with self.pool.lock:
+                farms = {str(row["id"]) for row in self.pool.rows.values() if row["owner_id"] == owner}
+                farm_count = len(farms)
+                field_count = sum(field["farmId"] in farms for field in self.pool.fields.values())
+        else:
+            row = await self.pool.fetchrow(
+                """SELECT
+                    (SELECT count(*) FROM farms WHERE owner_id=$1) AS farm_count,
+                    (SELECT count(*) FROM fields AS field
+                     JOIN farms AS farm ON farm.id=field.farm_id
+                     WHERE farm.owner_id=$1) AS field_count""",
+                owner,
+            )
+            farm_count, field_count = row["farm_count"], row["field_count"]
+        return farm_pb2.GetOverviewResponse(farm_count=farm_count, field_count=field_count)
+
     async def ListFarms(self, request, context):
         owner, _ = await self.ids(request, context)
         page, size = request.page or 1, request.page_size or 20
@@ -212,6 +232,9 @@ async def serve():
     pool = JsonStore() if storage_backend() == "json" else await asyncpg.create_pool(os.environ["DATABASE_URL"], min_size=1, max_size=10)
     server = aio.server()
     farm_pb2_grpc.add_FarmServiceServicer_to_server(FarmService(pool), server)
+    health_servicer = health.aio.HealthServicer()
+    health_pb2_grpc.add_HealthServicer_to_server(health_servicer, server)
+    await health_servicer.set("", health_pb2.HealthCheckResponse.SERVING)
     server.add_insecure_port("[::]:50051")
     await server.start()
     try:

@@ -18,6 +18,7 @@ from urllib.parse import urlparse
 import asyncpg
 import grpc
 from grpc import aio
+from grpc_health.v1 import health, health_pb2, health_pb2_grpc
 
 from identity.v1 import identity_pb2, identity_pb2_grpc
 
@@ -302,6 +303,9 @@ async def serve() -> None:
 
     server = aio.server()
     identity_pb2_grpc.add_IdentityServiceServicer_to_server(IdentityService(pool), server)
+    health_servicer = health.aio.HealthServicer()
+    health_pb2_grpc.add_HealthServicer_to_server(health_servicer, server)
+    await health_servicer.set("", health_pb2.HealthCheckResponse.SERVING)
     server.add_insecure_port("[::]:50051")
     await server.start()
     print(json.dumps({"service": "identity-service", "event": "started", "port": 50051}), flush=True)
