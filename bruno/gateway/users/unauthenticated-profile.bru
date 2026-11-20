@@ -10,6 +10,7 @@ get {
 
 tests {
   test("profile endpoint requires a bearer token", function() {
+    expect(res.getBody().error.code).to.equal("unauthenticated");
     expect(res.getStatus()).to.equal(401);
   });
 }

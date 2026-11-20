@@ -1,0 +1,61 @@
+[
+  {
+    "id": "c56c779b-2ee1-4a15-af56-7a3c1c4fb3c8",
+    "owner_id": "9a62eedd-7c33-4c4b-b9dc-99b4c7b7e8d4",
+    "created_at": "1970-01-01T00:00:00+00:00",
+    "updated_at": "1970-01-01T00:00:00+00:00",
+    "data": {
+      "name": "Klingonisches Imperium \u2013 Haus des Martok",
+      "location": "Qo'noS, Klingonisches Imperium, Beta-Quadrant",
+      "fields": [],
+      "template": {
+        "name": "Klingon Imperial Fleet Template"
+      }
+    },
+    "independent_fields": [
+      {
+        "excludedZones": null,
+        "soilType": null,
+        "soilPh": null,
+        "cropType": null,
+        "irrigation": "none",
+        "autoSpacing": false,
+        "name": "Synthetic field",
+        "geometry": {
+          "type": "Polygon",
+          "coordinates": [
+            [
+              [
+                10,
+                50
+              ],
+              [
+                10.001,
+                50
+              ],
+              [
+                10.001,
+                50.001
+              ],
+              [
+                10,
+                50.001
+              ],
+              [
+                10,
+                50
+              ]
+            ]
+          ]
+        },
+        "areaM2": 7974.5695506334305,
+        "netAreaM2": 7974.5695506334305,
+        "perimeterM": 365.84816733682436,
+        "id": "0a000000-0000-4000-8000-000000000001",
+        "farmId": "c56c779b-2ee1-4a15-af56-7a3c1c4fb3c8",
+        "createdAt": "1970-01-01T00:00:00+00:00",
+        "updatedAt": "1970-01-01T00:00:00+00:00"
+      }
+    ]
+  }
+]

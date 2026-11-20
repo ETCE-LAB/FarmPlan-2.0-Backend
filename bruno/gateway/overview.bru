@@ -1,0 +1,22 @@
+meta {
+  name: Owner overview
+  type: http
+  seq: 1
+}
+get {
+  url: {{gateway_url}}/api/v1/overview
+  auth: bearer
+}
+auth:bearer {
+  token: {{user_token}}
+}
+tests {
+  test("owner farm and independent field counts", function() {
+    expect(res.getStatus()).to.equal(200);
+    expect(res.getBody()).to.have.all.keys("farmCount", "fieldCount");
+    for (const count of Object.values(res.getBody())) {
+      expect(Number.isInteger(count)).to.equal(true);
+      expect(count).to.be.at.least(0);
+    }
+  });
+}

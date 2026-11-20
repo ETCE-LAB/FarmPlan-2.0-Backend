@@ -1,11 +1,11 @@
 meta {
-  name: Gateway health
+  name: Gateway and microservice health
   type: http
   seq: 1
 }
 
 get {
-  url: {{gateway_url}}/healthz
+  url: {{gateway_url}}/health
 }
 
 tests {
@@ -13,5 +13,9 @@ tests {
     expect(res.getStatus()).to.equal(200);
     expect(res.getBody().status).to.equal("ok");
     expect(res.getBody().service).to.equal("api-gateway");
+    const services = res.getBody().services;
+    ["gateway", "identity", "farm", "catalog", "planning", "analysis", "media"].forEach(function(name) {
+      expect(services[name]).to.equal("ok");
+    });
   });
 }

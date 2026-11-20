@@ -12,7 +12,11 @@ PROTO_FILES = [
     PROTO_ROOT / "farm" / "v1" / "farm.proto",
 ]
 
-if any(not (GENERATED_ROOT / proto.parent.relative_to(PROTO_ROOT) / f"{proto.stem}_pb2.py").exists() for proto in PROTO_FILES):
+if any(
+    not (generated := GENERATED_ROOT / proto.parent.relative_to(PROTO_ROOT) / f"{proto.stem}_pb2.py").exists()
+    or generated.stat().st_mtime < proto.stat().st_mtime
+    for proto in PROTO_FILES
+):
     GENERATED_ROOT.mkdir(parents=True, exist_ok=True)
     result = protoc.main(
         [

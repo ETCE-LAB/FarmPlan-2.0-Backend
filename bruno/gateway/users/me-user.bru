@@ -16,7 +16,7 @@ auth:bearer {
 tests {
   test("user token resolves to the registered profile", function() {
     expect(res.getStatus()).to.equal(200);
-    expect(res.getBody().account_type).to.equal("user");
+    expect(res.getBody().accountType).to.equal("user");
     expect(res.getBody().email).to.equal(bru.getEnvVar("registered_email"));
   });
 }

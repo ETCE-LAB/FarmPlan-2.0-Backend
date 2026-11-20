@@ -1,4 +1,6 @@
 import uuid
+from datetime import datetime, timezone
+from contextlib import asynccontextmanager
 
 import pytest
 
@@ -23,12 +25,50 @@ class FakePool:
         self.execute_error = execute_error
         self.execute_args = None
 
+    def acquire(self):
+        return self.transaction()
+
+    @asynccontextmanager
+    async def transaction(self):
+        yield self
+
     async def execute(self, query, *args):
-        self.execute_args = args
         if self.execute_error:
             raise self.execute_error
+        if query.startswith("INSERT INTO users"):
+            self.execute_args = args
+            self.row = dict(zip(("id", "email", "display_name", "password_hash"), args))
+        elif query.startswith("INSERT INTO identity_refresh_tokens"):
+            if not hasattr(self, "tokens"):
+                self.tokens = {}
+            self.tokens[args[0]] = args[1]
+        elif query.startswith("DELETE FROM identity_refresh_tokens"):
+            if "user_id" in query:
+                self.tokens = {}
+            else:
+                getattr(self, "tokens", {}).pop(args[0], None)
+        elif query.startswith("UPDATE users SET password_hash"):
+            self.row["password_hash"] = args[1]
+            self.row["token_version"] += 1
+        elif query.startswith("DELETE FROM users"):
+            self.row = None
+            self.tokens = {}
 
     async def fetchrow(self, query, *args):
+        if query.startswith("DELETE FROM identity_refresh_tokens"):
+            value = getattr(self, "tokens", {}).pop(args[0], None)
+            return {"user_id": value} if value else None
+        if "JOIN identity_refresh_tokens" in query and args[0] not in getattr(self, "tokens", {}):
+            return None
+        if self.row is not None:
+            self.row.setdefault("email", "grower@example.test")
+            self.row.setdefault("display_name", "Grower")
+            self.row.setdefault("created_at", datetime.now(timezone.utc))
+            self.row.setdefault("updated_at", self.row["created_at"])
+            self.row.setdefault("token_version", 0)
+            if query.startswith("UPDATE users SET display_name"):
+                self.row["display_name"] = args[1]
+                self.row["updated_at"] = datetime.now(timezone.utc)
         return self.row
 
 
@@ -175,3 +215,69 @@ async def test_unknown_login_uses_dummy_password_hash_before_rejecting(monkeypat
 
     assert error.value.code.name == "UNAUTHENTICATED"
     assert checked_hashes == [identity.DUMMY_PASSWORD_HASH]
+
+
+async def registered():
+    pool = FakePool()
+    service = identity.IdentityService(pool)
+    response = await service.Register(identity_pb2.RegisterRequest(
+        email="grower@example.test", password="long-test-password-123", display_name="Grower"), FakeContext())
+    return pool, service, response
+
+
+@pytest.mark.asyncio
+async def test_refresh_is_hashed_single_use_and_logout_is_idempotent():
+    pool, service, auth = await registered()
+    assert auth.expires_in == 3600
+    assert auth.user.created_at.endswith("Z")
+    assert auth.refresh_token not in pool.tokens
+    assert identity.hashlib.sha256(auth.refresh_token.encode()).hexdigest() in pool.tokens
+    rotated = await service.Refresh(identity_pb2.RefreshRequest(refresh_token=auth.refresh_token), FakeContext())
+    assert rotated.refresh_token != auth.refresh_token
+    with pytest.raises(RpcAborted) as error:
+        await service.Refresh(identity_pb2.RefreshRequest(refresh_token=auth.refresh_token), FakeContext())
+    assert error.value.code.name == "UNAUTHENTICATED"
+    for _ in range(2):
+        await service.Logout(identity_pb2.LogoutRequest(refresh_token=rotated.refresh_token), FakeContext())
+    with pytest.raises(RpcAborted):
+        await service.Refresh(identity_pb2.RefreshRequest(refresh_token=rotated.refresh_token), FakeContext())
+
+
+@pytest.mark.asyncio
+async def test_password_change_revokes_access_and_all_refresh_sessions():
+    pool, service, auth = await registered()
+    with pytest.raises(RpcAborted):
+        await service.ChangePassword(identity_pb2.ChangePasswordRequest(access_token=auth.access_token,
+            current_password="wrong-password", new_password="replacement-password"), FakeContext())
+    assert pool.row["token_version"] == 0
+    await service.ChangePassword(identity_pb2.ChangePasswordRequest(access_token=auth.access_token,
+        current_password="long-test-password-123", new_password="replacement-password"), FakeContext())
+    assert not pool.tokens
+    assert identity.verify_password("replacement-password", pool.row["password_hash"])
+    with pytest.raises(RpcAborted) as error:
+        await service.GetUser(identity_pb2.GetUserRequest(access_token=auth.access_token), FakeContext())
+    assert error.value.code.name == "UNAUTHENTICATED"
+
+
+@pytest.mark.asyncio
+async def test_partial_profile_and_self_deletion():
+    pool, service, auth = await registered()
+    profile = await service.UpdateProfile(identity_pb2.UpdateProfileRequest(access_token=auth.access_token), FakeContext())
+    assert profile.display_name == "Grower"
+    profile = await service.UpdateProfile(identity_pb2.UpdateProfileRequest(access_token=auth.access_token, display_name=" New name "), FakeContext())
+    assert profile.display_name == "New name"
+    with pytest.raises(RpcAborted):
+        await service.UpdateProfile(identity_pb2.UpdateProfileRequest(access_token=auth.access_token, display_name=" "), FakeContext())
+    await service.DeleteSelf(identity_pb2.DeleteSelfRequest(access_token=auth.access_token), FakeContext())
+    with pytest.raises(RpcAborted) as error:
+        await service.GetUser(identity_pb2.GetUserRequest(access_token=auth.access_token), FakeContext())
+    assert error.value.code.name == "UNAUTHENTICATED"
+
+
+@pytest.mark.asyncio
+async def test_guest_cannot_mutate_account():
+    service = identity.IdentityService(FakePool())
+    auth = await service.CreateGuestSession(identity_pb2.GuestSessionRequest(), FakeContext())
+    with pytest.raises(RpcAborted) as error:
+        await service.DeleteSelf(identity_pb2.DeleteSelfRequest(access_token=auth.access_token), FakeContext())
+    assert error.value.code.name == "PERMISSION_DENIED"

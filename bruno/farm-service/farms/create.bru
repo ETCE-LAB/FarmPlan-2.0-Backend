@@ -1,0 +1,23 @@
+meta {
+  name: Create synthetic farm
+  type: http
+  seq: 2
+}
+post {
+  url: {{gateway_url}}/api/v1/farms
+  body: json
+  auth: bearer
+}
+auth:bearer {
+  token: {{user_token}}
+}
+body:json {
+  {"name":"Synthetic API farm","location":"Synthetic location","boundary":null,"notes":"Development request"}
+}
+tests {
+  test("created direct resource", function() {
+    expect(res.getStatus()).to.equal(201);
+    expect(res.getBody().id).to.be.a("string");
+    bru.setVar("farm_id", res.getBody().id);
+  });
+}

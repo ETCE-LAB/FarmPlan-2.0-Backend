@@ -1,0 +1,22 @@
+meta {
+  name: Patch owner farm
+  type: http
+  seq: 4
+}
+patch {
+  url: {{gateway_url}}/api/v1/farms/{{farm_id}}
+  body: json
+  auth: bearer
+}
+auth:bearer {
+  token: {{user_token}}
+}
+body:json {
+  {"notes":"Updated synthetic note"}
+}
+tests {
+  test("partial update", function() {
+    expect(res.getStatus()).to.equal(200);
+    expect(res.getBody().notes).to.equal("Updated synthetic note");
+  });
+}

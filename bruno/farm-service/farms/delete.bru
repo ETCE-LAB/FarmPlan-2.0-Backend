@@ -1,0 +1,17 @@
+meta {
+  name: Delete owner farm
+  type: http
+  seq: 5
+}
+delete {
+  url: {{gateway_url}}/api/v1/farms/{{farm_id}}
+  auth: bearer
+}
+auth:bearer {
+  token: {{user_token}}
+}
+tests {
+  test("empty deletion response", function() {
+    expect(res.getStatus()).to.equal(204);
+  });
+}

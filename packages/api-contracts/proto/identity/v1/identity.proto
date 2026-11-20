@@ -1,5 +1,4 @@
 syntax = "proto3";
-
 package farmplan.identity.v1;
 
 service IdentityService {
@@ -7,35 +6,38 @@ service IdentityService {
   rpc Login(LoginRequest) returns (AuthResponse);
   rpc CreateGuestSession(GuestSessionRequest) returns (AuthResponse);
   rpc GetUser(GetUserRequest) returns (UserProfile);
+  rpc Refresh(RefreshRequest) returns (AuthResponse);
+  rpc Logout(LogoutRequest) returns (EmptyResponse);
+  rpc UpdateProfile(UpdateProfileRequest) returns (UserProfile);
+  rpc ChangePassword(ChangePasswordRequest) returns (EmptyResponse);
+  rpc DeleteSelf(DeleteSelfRequest) returns (EmptyResponse);
 }
-
-message RegisterRequest {
-  string email = 1;
-  string password = 2;
-  string display_name = 3;
-}
-
-message LoginRequest {
-  string email = 1;
-  string password = 2;
-}
-
+message RegisterRequest { string email = 1; string password = 2; string display_name = 3; }
+message LoginRequest { string email = 1; string password = 2; }
 message GuestSessionRequest {}
-
 message AuthResponse {
   string access_token = 1;
   string token_type = 2;
   string user_id = 3;
   string account_type = 4;
+  int32 expires_in = 5;
+  UserProfile user = 6;
+  string refresh_token = 7;
+  int32 refresh_expires_in = 8;
 }
-
-message GetUserRequest {
-  string access_token = 1;
-}
-
+message GetUserRequest { string access_token = 1; }
 message UserProfile {
   string user_id = 1;
   string email = 2;
   string display_name = 3;
   string account_type = 4;
+  string created_at = 5;
+  string updated_at = 6;
 }
+message RefreshRequest { string refresh_token = 1; }
+// Idempotently revokes this refresh session; access tokens expire normally.
+message LogoutRequest { string refresh_token = 1; }
+message UpdateProfileRequest { string access_token = 1; optional string display_name = 2; }
+message ChangePasswordRequest { string access_token = 1; string current_password = 2; string new_password = 3; }
+message DeleteSelfRequest { string access_token = 1; }
+message EmptyResponse {}

@@ -1,0 +1,15 @@
+meta {
+  name: Logout session
+  type: http
+  seq: 11
+}
+
+post {
+  url: {{gateway_url}}/api/v1/auth/logout
+}
+
+tests {
+  test("request succeeds", function() {
+    expect(res.getStatus()).to.equal(204);
+  });
+}

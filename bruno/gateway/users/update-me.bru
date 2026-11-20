@@ -1,0 +1,25 @@
+meta {
+  name: Update own profile
+  type: http
+  seq: 12
+}
+
+patch {
+  url: {{gateway_url}}/api/v1/users/me
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{user_token}}
+}
+
+body:json {
+  displayName: "Updated Bruno User"
+}
+
+tests {
+  test("request succeeds", function() {
+    expect(res.getStatus()).to.equal(200);
+  });
+}

@@ -15,6 +15,7 @@ auth:bearer {
 
 tests {
   test("guest cannot access a module that requires an account", function() {
+    expect(res.getBody().error.code).to.equal("permission_denied");
     expect(res.getStatus()).to.equal(403);
   });
 }

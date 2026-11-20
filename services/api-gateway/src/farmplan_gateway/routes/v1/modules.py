@@ -12,7 +12,7 @@ def register(app, deps) -> None:
                 {
                     "id": module_id,
                     "enabled": module_id in deps.ENABLED_MODULES,
-                    "available_to_guest": module_id in deps.GUEST_ENABLED_MODULES,
+                    "availableToGuest": module_id in deps.GUEST_ENABLED_MODULES,
                     "accessible": module_id in deps.ENABLED_MODULES
                     and (user.account_type != "guest" or module_id in deps.GUEST_ENABLED_MODULES),
                 }
@@ -20,17 +20,17 @@ def register(app, deps) -> None:
             ]
         }
 
-    app.add_api_route("/api/v1/modules", list_modules, methods=["GET"], tags=["modules"])
+    app.add_api_route("/api/v1/modules", list_modules, methods=["GET"], tags=["modules"], response_model=deps.ModulesResponse)
 
     async def check_module_access(
         module_id: str, user: Any = Depends(deps.current_user)
     ) -> dict[str, str | bool]:
         deps.require_module(module_id, user.account_type)
-        return {"module_id": module_id, "accessible": True, "account_type": user.account_type}
+        return {"moduleId": module_id, "accessible": True, "accountType": user.account_type}
 
     app.add_api_route(
         "/api/v1/modules/{module_id}/access",
         check_module_access,
         methods=["GET"],
-        tags=["modules"],
+        tags=["modules"], response_model=deps.ModuleAccessResponse,
     )

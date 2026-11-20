@@ -10,7 +10,7 @@ GENERATED_ROOT = BACKEND_ROOT / ".generated"
 PROTO_ROOT = BACKEND_ROOT / "packages" / "api-contracts" / "proto"
 PROTO_FILE = PROTO_ROOT / "identity" / "v1" / "identity.proto"
 
-if not (GENERATED_ROOT / "identity" / "v1" / "identity_pb2.py").exists():
+if True:  # Regenerate so additive contract changes cannot use stale bindings.
     GENERATED_ROOT.mkdir(parents=True, exist_ok=True)
     result = protoc.main(
         [

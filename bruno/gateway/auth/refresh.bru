@@ -1,0 +1,17 @@
+meta {
+  name: Refresh session
+  type: http
+  seq: 10
+}
+
+post {
+  url: {{gateway_url}}/api/v1/auth/refresh
+}
+
+tests {
+  test("request succeeds", function() {
+    expect(res.getStatus()).to.equal(200);
+    expect(res.getBody().accessToken).to.be.a("string");
+    bru.setEnvVar("user_token", res.getBody().accessToken);
+  });
+}

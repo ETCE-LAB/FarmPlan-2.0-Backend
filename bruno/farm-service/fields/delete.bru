@@ -1,0 +1,18 @@
+meta {
+  name: Delete field (disposable data only)
+  type: http
+  seq: 6
+}
+delete {
+  url: {{gateway_url}}/api/v1/fields/{{field_id}}
+  body: none
+  auth: bearer
+}
+auth:bearer {
+  token: {{user_token}}
+}
+tests {
+  test("empty deletion response", function() {
+    expect(res.getStatus()).to.equal(204);
+  });
+}

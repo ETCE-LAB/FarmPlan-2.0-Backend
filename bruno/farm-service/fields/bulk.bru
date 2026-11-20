@@ -1,0 +1,22 @@
+meta {
+  name: Atomic GeoJSON field import
+  type: http
+  seq: 3
+}
+post {
+  url: {{gateway_url}}/api/v1/farms/{{farm_id}}/fields:bulk
+  body: json
+  auth: bearer
+}
+auth:bearer {
+  token: {{user_token}}
+}
+body:json {
+  {"type":"FeatureCollection","features":[{"type":"Feature","properties":{"name":"Synthetic imported field"},"geometry":{"type":"Polygon","coordinates":[[[10,50],[10.001,50],[10.001,50.001],[10,50.001],[10,50]]]}}]}
+}
+tests {
+  test("whole batch created", function() {
+    expect(res.getStatus()).to.equal(201);
+    expect(res.getBody().items).to.have.lengthOf(1);
+  });
+}
